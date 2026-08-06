@@ -135,11 +135,11 @@ build-package --output <directory>
   cross-runner rebuild remains diagnostic evidence and cannot replace it.
 - After publish, the local publisher and CI workflow poll the exact package
   version for a bounded interval before reporting success.
-- npm publication uses Trusted Publishing from the public GitHub repository.
-  The publish job has `id-token: write`, clears `NODE_AUTH_TOKEN`, and invokes
-  `npm publish --access public`; npm generates provenance automatically. No
-  token bytes enter logs, source, package contents, tag messages, or Trellis
-  artifacts.
+- npm publication uses GitHub Actions on the public repository. The publish
+  job takes a package-scoped `NPM_TOKEN` only from a repository Actions secret,
+  validates it with non-echoing `npm whoami`, retains `id-token: write`, and
+  invokes `npm publish --provenance --access public`. No token bytes enter
+  logs, source, package contents, tag messages, or Trellis artifacts.
 
 ### 4. Validation & Error Matrix
 

@@ -95,7 +95,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     env:
-      NODE_AUTH_TOKEN: ""
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     permissions:
       contents: read
       id-token: write
@@ -110,6 +110,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install --global npm@12.0.1
       - run: npm ci --ignore-scripts
+      - name: Verify npm publication identity
+        run: npm whoami >/dev/null
       - run: |
           node --input-type=module -e 'import("./scripts/release/verify-tag.mjs").then(({ verifyTag }) => verifyTag({ tag: process.env.RELEASE_TAG }))'
         env:
@@ -153,13 +155,12 @@ jobs:
             echo "registry lookup did not return an explicit 404"
             exit 1
           fi
-      - name: Publish exact tarball with npm Trusted Publisher
+      - name: Publish exact tarball with npm provenance
         env:
           PACKAGE_NAME: ${{ needs.validate.outputs.tarball }}
         run: |
           TARBALL_PATH="$GITHUB_WORKSPACE/verified-tarball/$PACKAGE_NAME"
-          unset NODE_AUTH_TOKEN
-          npm publish "$TARBALL_PATH" --access public --ignore-scripts
+          npm publish "$TARBALL_PATH" --provenance --access public --ignore-scripts
       - name: Poll registry for exact published version
         shell: bash
         run: |

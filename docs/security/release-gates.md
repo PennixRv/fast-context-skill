@@ -14,12 +14,14 @@ canonical-digest field itself. The exact raw attestation digest is bound in the
 annotated tag message, which avoids a self-referential commit or file hash.
 
 Development and offline tests do not read real credentials or call Windsurf.
-Publication uses npm Trusted Publishing from the public GitHub repository
-`PennixRv/fast-context-skill`: the publish job has `id-token: write`, does not
-accept a static `NODE_AUTH_TOKEN`, and invokes `npm publish --access public`.
-npm generates the registry provenance attestation automatically for this public
-repository. Publication still requires operator authorization, an exact npm
-Trusted Publisher configuration for `publish-npm.yml`, npm scope ownership, tag
+Publication runs only in GitHub Actions against the fixed tag. The publish job
+receives a package-scoped `NPM_TOKEN` from the repository Actions secret,
+verifies it with `npm whoami` without printing it, retains `id-token: write`,
+and invokes `npm publish --provenance --access public`. The secret never enters
+source, package contents, tag messages, Trellis artifacts, or logs. This keeps
+token authentication separate from the GitHub-hosted provenance attestation
+and avoids making npm website Trusted Publisher configuration an operator gate.
+Publication still requires operator authorization, npm scope ownership, tag
 protection, registry availability, and post-publish signature/attestation
 verification. The workflow never creates a GitHub Release.
 
