@@ -55,6 +55,7 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(publish, /verify-tag\.mjs.*verifyTag/);
   assert.match(publish, /verify-release-evidence\.mjs.*verifyReleaseEvidence/);
   assert.match(publish, /RELEASE_TAG: \$\{\{ inputs\.tag \}\}/);
+  assert.doesNotMatch(publish, /- run: node --input-type=module -e/);
   assert.match(readFileSync("scripts/release/verify-tag.mjs", "utf8"), /process\.argv\[2\] \|\| process\.env\.GITHUB_REF_NAME/);
   assert.match(readFileSync("scripts/release/verify-release-evidence.mjs", "utf8"), /process\.argv\[2\] \|\| process\.env\.GITHUB_REF_NAME/);
   assert.match(publish, /actions\/upload-artifact@v4/);
