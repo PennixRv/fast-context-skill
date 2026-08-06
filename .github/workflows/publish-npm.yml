@@ -155,8 +155,8 @@ jobs:
         env:
           PACKAGE_NAME: ${{ needs.validate.outputs.tarball }}
         run: |
-          TARBALL="verified-tarball/$PACKAGE_NAME"
-          npm publish "$TARBALL" --provenance --access public --ignore-scripts
+          TARBALL_PATH="$GITHUB_WORKSPACE/verified-tarball/$PACKAGE_NAME"
+          npm publish "$TARBALL_PATH" --provenance --access public --ignore-scripts
       - name: Poll registry for exact published version
         shell: bash
         run: |
