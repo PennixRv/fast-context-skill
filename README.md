@@ -34,14 +34,21 @@ All checks are offline and use temporary fixtures or injected request runners:
 npm test
 npm run verify:provenance
 npm run pack:check
-npm pack --dry-run --json
+npm pack --dry-run --json --ignore-scripts
+node scripts/release/build-package.mjs --output dist/package-check
 ```
 
 These commands do not call Windsurf, npm publication, GitHub, or any real
 credential source.
 
+The `test`, `release`, `release:verify`, and packaging-check scripts belong to
+the source repository's maintainer workflow. They are intentionally omitted
+from the installed consumer manifest; installation exposes only the runtime
+CLI and Skill assets.
+
 ## Attribution
 
 The upstream MIT license is preserved at `scripts/lib/LICENSE.fast-context-mcp`.
-See `NOTICE.md` and `docs/security/source-provenance.json` for the exact
-shipped-file classification and digests.
+See `NOTICE.md` and [`references/source-provenance.json`](references/source-provenance.json)
+for the public shipped-file classification and digests. The projection is
+included in the npm tarball; the full maintainer provenance remains source-only.

@@ -102,6 +102,7 @@ annotated tag through a direct-child evidence commit.
 release:preflight
 release:verify-evidence -- v<major>.<minor>.<patch>
 release:publish -- --tag v<major>.<minor>.<patch> --tarball <exact-path>
+build-package --output <directory>
 ```
 
 ### 3. Contracts
@@ -109,7 +110,15 @@ release:publish -- --tag v<major>.<minor>.<patch> --tarball <exact-path>
 - `C` is the clean source commit; `E` is its direct child and changes only the
   content-free attestation JSON.
 - The annotated tag peels to `E` and binds `C`, `E`, package/version, source
-  provenance, package manifest, canonical/raw attestation, and tarball SHA-256.
+  provenance, source package manifest, staged consumer manifest, canonical/raw
+  attestation, and tarball SHA-256.
+- `build-package` copies only the source `files` allowlist into a disposable
+  staging directory and generates a minimal consumer `package.json`. The source
+  manifest retains maintainer scripts; the staged manifest has no `scripts` or
+  `devDependencies`.
+- A manual publish workflow must pass its dispatch `inputs.tag` directly to
+  tag/evidence verifiers. `GITHUB_REF_NAME` is not authoritative after a
+  `workflow_dispatch` checkout of a different ref.
 - The publisher accepts one exact lifecycle-disabled tarball and rechecks its
   digest immediately before `npm publish`.
 - After publish, the local publisher and CI workflow poll the exact package
@@ -124,13 +133,16 @@ release:publish -- --tag v<major>.<minor>.<patch> --tarball <exact-path>
 | Missing or lightweight tag | Reject before publish |
 | Non-annotated, retargeted, dirty, or unrelated evidence commit | Reject before publish |
 | Tarball filename or digest mismatch | Reject before publish |
+| Staged manifest has scripts/dev dependencies or a file outside the allowlist | Reject package check |
+| Manual publish verifier receives a branch/default ref instead of `inputs.tag` | Reject before publish |
 | Existing target version, auth failure, or non-404 registry response before publish | Reject before publish |
 | Published version metadata temporarily returns 404 | Do not republish; confirm dist-tags, public tarball HTTP 200, and immutable-version conflict evidence |
 
 ### 5. Good, Base, And Bad Cases
 
-- Good: `C -> E -> v0.1.0`, exact tarball digest, explicit pre-publish 404,
-  and public tarball digest equal to the local artifact.
+- Good: `C -> E -> v0.1.1`, exact staged tarball digest, script-free consumer
+  manifest, explicit pre-publish 404, and public tarball digest equal to the
+  local artifact.
 - Base: Registry metadata lags after a successful publish; `npm dist-tag ls`
   and the public tarball endpoint establish visibility without republishing.
 - Bad: A second publish is attempted because a post-publish `npm view` call
@@ -138,9 +150,13 @@ release:publish -- --tag v<major>.<minor>.<patch> --tarball <exact-path>
 
 ### 6. Tests Required
 
-- Evidence tests assert direct-child ancestry and an attestation-only diff.
-- Release tests assert canonical/raw digest separation and strict tag metadata.
-- Offline tests assert the exact package allowlist and packed install.
+- Evidence tests assert direct-child ancestry, a dynamic attestation path, and
+  an attestation-only diff.
+- Release tests assert canonical/raw digest separation, staged-manifest digest,
+  strict tag metadata, and explicit workflow tag forwarding.
+- Offline tests assert the exact package allowlist, privacy-safe README
+  provenance link, script-free staged manifest, and packed install with CLI
+  `--help`.
 - Operator verification records `npm dist-tag ls`, public tarball HTTP status,
   and downloaded tarball SHA-256 after publication.
 
@@ -159,4 +175,16 @@ Correct:
 npm dist-tag ls package
 curl package/-/package-version.tgz
 compare downloaded SHA-256 with the attested artifact
+```
+
+Wrong:
+
+```yaml
+- run: node scripts/release/verify-tag.mjs
+```
+
+Correct:
+
+```yaml
+- run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
 ```

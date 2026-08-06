@@ -1,7 +1,7 @@
 interface:
   display_name: "Fast Context"
-  short_description: "On-demand semantic code candidates"
-  default_prompt: "Use $fast-context only after local search and CodeGraph cannot identify the relevant code location."
+  short_description: "Route genuinely ambiguous code-location questions after local tools and CodeGraph"
+  default_prompt: "Route only genuinely ambiguous business, historical, or legacy code-location questions here after local tools and CodeGraph cannot locate useful candidates; verify every returned path locally."
 
 policy:
-  allow_implicit_invocation: false
+  allow_implicit_invocation: true

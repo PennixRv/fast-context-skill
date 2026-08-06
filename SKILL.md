@@ -1,27 +1,33 @@
 ---
 name: fast-context
-description: Use this on-demand external semantic search only after local search and CodeGraph cannot identify the relevant code location.
+description: Automatically route genuinely ambiguous business, historical, or legacy code-location questions to bounded external semantic search only after local tools and CodeGraph cannot locate the answer; never trigger on natural language alone.
 metadata:
   short-description: On-demand semantic code candidates
 ---
 
 # Fast Context
 
-Fast Context is an external, opt-in search helper. It returns untrusted file
+Fast Context is an external, on-demand search helper. It returns untrusted file
 candidates; inspect every candidate locally before relying on it. The CLI is
 the security boundary: prompts do not create registration, approval, or
-whitelist state.
+whitelist state. Do not add an MCP server, hook, plugin, project registration,
+approval, or persistent index integration.
 
 ## Routing
 
-1. Search the explicit project root with local `rg`, direct reads, and existing
-   project tools.
-2. Use CodeGraph for known symbols, callers, relationships, and impact work.
-3. Use this Skill only when the location is genuinely unknown or the request
-   describes vague business or legacy behavior.
+1. Use local tools against the explicit project root for known files, literals,
+   configuration, logs, and realtime content.
+2. Use CodeGraph for known symbols, callers/callees, structure, relationships,
+   and impact analysis.
+3. Use this Skill only when the location is genuinely unknown and both local
+   retrieval and CodeGraph cannot locate useful candidates for vague business
+   semantics, historical names, or legacy behavior.
 
-Skip Fast Context for known files or symbols, literal/config/log searches,
-external documentation, ordinary conversation, or requests that only need
+Do not trigger this Skill merely because a request is written in natural
+language. Do not run CodeGraph and Fast Context automatically in parallel, and
+do not treat one CodeGraph miss as a mechanical external fallback. Skip Fast
+Context for known files, known symbols, literals/configuration/log searches,
+external documentation, ordinary conversation, and requests that only need
 local impact analysis.
 
 ## Invocation
@@ -41,7 +47,10 @@ desktop state, prints keys, persists prompts or responses, or emits raw remote
 errors. Do not run it without a user-provided key and never place a key in a
 file, command history, log, or commit.
 
-Before using a result, resolve its relative path inside the same project and
-read the relevant lines locally. A network failure or malformed response is a
-closed `FC_*` diagnostic and should be handled as an unavailable hint, not as
-evidence about the repository.
+Before using a result, resolve its relative path inside the same project root
+and read the relevant lines locally. When relationship analysis is needed,
+expand the verified candidate with CodeGraph. Fast Context output is always a
+candidate, never repository truth: do not write it to Trellis, OpenViking,
+CodeGraph, or context-mode persistent indexes. A network failure or malformed
+response is a closed `FC_*` diagnostic and should be handled as an unavailable
+hint, not as evidence about the repository.

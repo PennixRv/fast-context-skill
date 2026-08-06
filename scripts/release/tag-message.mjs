@@ -5,11 +5,10 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatTagMetadata, sha256Bytes, validateAttestation } from "./attestation.mjs";
+import { attestationPathForTag } from "./verify-release-evidence.mjs";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
-const ATTESTATION_PATH = "docs/releases/attestations/v0.1.0.json";
-
 function git(args) {
   return execFileSync("git", args, {
     cwd: PROJECT_ROOT,
@@ -19,8 +18,9 @@ function git(args) {
 }
 
 export function createTagMessage({ tag, evidenceCommit }) {
+  const attestationPath = attestationPathForTag(tag);
   const parentCommit = git(["rev-parse", `${evidenceCommit}^`]);
-  const attestationBytes = execFileSync("git", ["show", `${evidenceCommit}:${ATTESTATION_PATH}`], {
+  const attestationBytes = execFileSync("git", ["show", `${evidenceCommit}:${attestationPath}`], {
     cwd: PROJECT_ROOT,
     stdio: ["ignore", "pipe", "pipe"],
   });

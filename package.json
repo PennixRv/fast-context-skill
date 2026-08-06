@@ -1,6 +1,6 @@
 {
   "name": "@pennixrv/fast-context-skill",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent Skill and CLI adaptation of fast-context-mcp that runs Windsurf Devstral semantic code search without an MCP server.",
   "license": "MIT",
   "type": "module",
@@ -13,6 +13,7 @@
     "NOTICE.md",
     "LICENSE",
     "references/script-contract.md",
+    "references/source-provenance.json",
     "agents/openai.yaml",
     "scripts/fast-context-search.mjs",
     "scripts/lib/LICENSE.fast-context-mcp",

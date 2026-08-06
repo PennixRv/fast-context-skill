@@ -23,24 +23,24 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci --ignore-scripts
-      - run: node scripts/release/verify-tag.mjs
-      - run: node scripts/release/verify-release-evidence.mjs
+      - run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
+      - run: node scripts/release/verify-release-evidence.mjs "${{ inputs.tag }}"
       - run: npm test
       - run: npm run verify:provenance
       - run: npm run pack:check
-      - run: npm pack --ignore-scripts --json > pack.json
+      - run: node scripts/release/build-package.mjs --output dist/verified-package > pack.json
       - name: Record exact tarball digest
         id: pack
         shell: bash
         run: |
-          TARBALL="$(node -p "JSON.parse(require('fs').readFileSync('pack.json','utf8'))[0].filename")"
-          SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          TARBALL="$(node -p "JSON.parse(require('fs').readFileSync('pack.json','utf8')).filename")"
+          SHA256="$(sha256sum "dist/verified-package/$TARBALL" | awk '{print $1}')"
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "tarball_sha256=$SHA256" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: verified-npm-tarball
-          path: ${{ steps.pack.outputs.tarball }}
+          path: dist/verified-package/${{ steps.pack.outputs.tarball }}
           if-no-files-found: error
     outputs:
       tarball: ${{ steps.pack.outputs.tarball }}
@@ -62,8 +62,8 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org
       - run: npm ci --ignore-scripts
-      - run: node scripts/release/verify-tag.mjs
-      - run: node scripts/release/verify-release-evidence.mjs
+      - run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
+      - run: node scripts/release/verify-release-evidence.mjs "${{ inputs.tag }}"
       - uses: actions/download-artifact@v4
         with:
           name: verified-npm-tarball
@@ -79,6 +79,7 @@ jobs:
           test -z "$(git status --porcelain)"
           SMOKE_DIR="$(mktemp -d)"
           npm install --offline --ignore-scripts --no-audit --no-fund --prefix "$SMOKE_DIR" "$TARBALL"
+          node "$SMOKE_DIR/node_modules/@pennixrv/fast-context-skill/scripts/fast-context-search.mjs" --help
       - name: Require an explicit registry 404
         shell: bash
         run: |

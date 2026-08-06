@@ -9,7 +9,8 @@ import {
   sha256Bytes,
   validateAttestation,
 } from "./attestation.mjs";
-import { ATTESTATION_PATH, buildTarball } from "./verify-release-evidence.mjs";
+import { buildConsumerPackage } from "./build-package.mjs";
+import { attestationPathForTag, buildTarball } from "./verify-release-evidence.mjs";
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
@@ -54,7 +55,7 @@ function createAttestation({ sourceCommit, packageJson, artifact }) {
   const provenance = readFileSync(join(PROJECT_ROOT, "docs/security/source-provenance.json"));
   const manifest = readFileSync(join(PROJECT_ROOT, "package.json"));
   const document = {
-    schema_version: 1,
+    schema_version: 2,
     package: {
       name: packageJson.name,
       version: packageJson.version,
@@ -65,6 +66,7 @@ function createAttestation({ sourceCommit, packageJson, artifact }) {
     artifacts: {
       provenance_sha256: sha256Bytes(provenance),
       package_manifest_sha256: sha256Bytes(manifest),
+      consumer_manifest_sha256: artifact.consumerManifestSha256,
       tarball_filename: artifact.filename,
       tarball_sha256: artifact.sha256,
     },
@@ -89,15 +91,13 @@ export function preflightRelease({ projectRoot = PROJECT_ROOT } = {}) {
   requireExplicit404(`${packageJson.name}@${packageJson.version}`);
   const attestation = createAttestation({ sourceCommit, packageJson, artifact });
   const artifactDirectory = join(PROJECT_ROOT, "dist", "releases", tag);
-  const attestationFile = join(PROJECT_ROOT, ATTESTATION_PATH);
+  const attestationFile = join(PROJECT_ROOT, attestationPathForTag(tag));
   mkdirSync(artifactDirectory, { recursive: true });
-  execFileSync(
-    "npm",
-    ["pack", "--ignore-scripts", "--json", "--pack-destination", artifactDirectory],
-    { cwd: PROJECT_ROOT, stdio: ["ignore", "ignore", "ignore"] },
-  );
-  const tarballPath = join(artifactDirectory, artifact.filename);
-  if (sha256Bytes(readFileSync(tarballPath)) !== artifact.sha256) throw new Error("local tarball changed during preflight");
+  const localArtifact = buildConsumerPackage({ sourceRoot: PROJECT_ROOT, outputDirectory: artifactDirectory });
+  const tarballPath = localArtifact.tarballPath;
+  if (localArtifact.sha256 !== artifact.sha256 || localArtifact.manifestSha256 !== artifact.consumerManifestSha256) {
+    throw new Error("local staged package changed during preflight");
+  }
   mkdirSync(dirname(attestationFile), { recursive: true });
   writeFileSync(attestationFile, `${JSON.stringify(attestation, null, 2)}\n`, "utf8");
   return {

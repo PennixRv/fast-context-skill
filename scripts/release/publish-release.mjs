@@ -87,9 +87,10 @@ export function publishRelease({ tag, tarballPath }) {
   requireNpmAuth();
   requireExplicit404(evidence.package);
   if (git(["status", "--porcelain"])) throw new Error("worktree changed before publish");
-  const result = runNpm(["publish", tarballPath, "--access", "public", "--ignore-scripts"]);
+  const result = runNpm(["publish", tarballPath, "--provenance", "--access", "public", "--ignore-scripts"]);
   if (result.status !== 0) throw new Error("npm publish failed");
-  waitForPublishedVersion(evidence.package, evidence.package.split("@").pop());
+  const separator = evidence.package.lastIndexOf("@");
+  waitForPublishedVersion(evidence.package.slice(0, separator), evidence.package.slice(separator + 1));
   return evidence;
 }
 

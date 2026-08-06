@@ -44,6 +44,13 @@ export function canonicalAttestationSha256(document) {
   return sha256Bytes(canonicalJson(document));
 }
 
+export function tarballFilename(packageName, version) {
+  if (!/^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(packageName) || !VERSION.test(version)) {
+    throw new Error("invalid package coordinate for tarball filename");
+  }
+  return `${packageName.slice(1).replace("/", "-")}-${version}.tgz`;
+}
+
 function requireString(value, pattern, label) {
   if (typeof value !== "string" || !pattern.test(value)) {
     throw new Error(`invalid attestation ${label}`);
@@ -69,7 +76,7 @@ export function validateAttestation(document) {
     "artifacts",
     "canonical_attestation_sha256",
   ], "root");
-  if (document.schema_version !== 1) throw new Error("unsupported attestation schema");
+  if (![1, 2].includes(document.schema_version)) throw new Error("unsupported attestation schema");
   requireExactKeys(document.package, ["name", "version"], "package");
   if (!/^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(document.package.name)) {
     throw new Error("invalid attestation package name");
@@ -77,19 +84,21 @@ export function validateAttestation(document) {
   requireString(document.package.version, VERSION, "package version");
   requireExactKeys(document.source, ["commit"], "source");
   requireString(document.source.commit, COMMIT, "source commit");
-  requireExactKeys(document.artifacts, [
+  const artifactKeys = [
     "provenance_sha256",
     "package_manifest_sha256",
     "tarball_filename",
     "tarball_sha256",
-  ], "artifacts");
+  ];
+  if (document.schema_version === 2) artifactKeys.push("consumer_manifest_sha256");
+  requireExactKeys(document.artifacts, artifactKeys, "artifacts");
   for (const key of ["provenance_sha256", "package_manifest_sha256", "tarball_sha256"]) {
     requireString(document.artifacts[key], HEX_SHA256, `artifact ${key}`);
   }
-  if (
-    typeof document.artifacts.tarball_filename !== "string" ||
-    !/^pennixrv-fast-context-skill-[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\.tgz$/.test(document.artifacts.tarball_filename)
-  ) {
+  if (document.schema_version === 2) {
+    requireString(document.artifacts.consumer_manifest_sha256, HEX_SHA256, "artifact consumer_manifest_sha256");
+  }
+  if (document.artifacts.tarball_filename !== tarballFilename(document.package.name, document.package.version)) {
     throw new Error("invalid attestation tarball filename");
   }
   requireString(document.canonical_attestation_sha256, HEX_SHA256, "canonical digest");
@@ -153,7 +162,7 @@ export function validateTagMetadata(metadata) {
   ]) {
     requireString(metadata[key], HEX_SHA256, `tag metadata ${key}`);
   }
-  if (!/^pennixrv-fast-context-skill-[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\.tgz$/.test(metadata.tarball_filename)) {
+  if (metadata.tarball_filename !== tarballFilename(packageDocument.name, packageDocument.version)) {
     throw new Error("invalid tag metadata tarball filename");
   }
   return metadata;

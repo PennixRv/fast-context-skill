@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.0",
+  "package": "@pennixrv/fast-context-skill@0.1.1",
   "baseline": {
     "repository": "https://github.com/pennixrv/fast-context-skill",
     "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"
@@ -13,6 +13,7 @@
     "agents/openai.yaml",
     "package.json",
     "references/script-contract.md",
+    "references/source-provenance.json",
     "scripts/fast-context-search.mjs",
     "scripts/lib/LICENSE.fast-context-mcp",
     "scripts/lib/core.mjs",
@@ -41,28 +42,28 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Local-first operating and security documentation.",
-      "shipped_sha256": "895cb2d70493b5b7f4221ce536aa0634ac3efaaa78348092d486ef3d79ce65cc"
+      "shipped_sha256": "e48df93c543ddffff4b2105338e02c64a56da530030235d2b538e8922951ead6"
     },
     {
       "path": "SKILL.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "On-demand Skill routing without approval state.",
-      "shipped_sha256": "db120e9755cca11a60e75dd1e0a4185d7a9c16da1893016245ad8290eb88ff6c"
+      "change_summary": "Automatic local-first and CodeGraph-gated routing without approval state.",
+      "shipped_sha256": "c638c283c6bead62c238a92dd40e5435245395643e744c54cda49e145daa0144"
     },
     {
       "path": "agents/openai.yaml",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Disabled implicit invocation for the external helper.",
-      "shipped_sha256": "aebd71c4e099fe3140869cfee84b6b58e19cd08b1842d86704c04623766926ba"
+      "change_summary": "Implicit invocation metadata with local and CodeGraph routing gates.",
+      "shipped_sha256": "655cc490ab7d9fc277c2bd85cd187e937523266c95eee0310e7d1ec80c24c400"
     },
     {
       "path": "package.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Fork repository identity and exact individual-file allowlist.",
-      "shipped_sha256": "cb410df47732f9187decc289c1bf7f727ab2310ffae557fe8b454b025dd906a6"
+      "shipped_sha256": "51eb498bafff3a5b15c18821d02885c10917b0856cd88930e2b697433a74b15f"
     },
     {
       "path": "references/script-contract.md",
@@ -70,6 +71,13 @@
       "owner": "pennixrv",
       "change_summary": "Finite CLI and redacted output contract.",
       "shipped_sha256": "4f30dec8d4f935e0915b6f0c893e4672db7b714563afdeb46c67d6ddc0bdfde5"
+    },
+    {
+      "path": "references/source-provenance.json",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
+      "shipped_sha256": "27b521bdf82b4c007a70a4e71dd0d885cee01e3c9d9fe01eb524cc990bb4b70d"
     },
     {
       "path": "scripts/fast-context-search.mjs",
