@@ -16,9 +16,9 @@ gates prove the intended scope/version is publishable.
   shared Codex execution environment; token bytes were not read or emitted.
 - `npm view @pennixrv/fast-context-skill@0.1.0` returns explicit 404, so the
   target version is absent.
-- The authenticated account can list existing package permissions, but the new
-  target package does not exist yet; final scope authority remains a publish
-  gate rather than an assumption.
+- The `pennixrv` npm organization now exists and `pennix` is its owner. The
+  active granular token is unrevoked, has `bypass_2fa=true`, and has package
+  and organization write permissions; token bytes were not read or emitted.
 
 ## Requirements
 
@@ -62,17 +62,17 @@ gates prove the intended scope/version is publishable.
 
 ## Acceptance Criteria
 
-- [ ] The current npm login succeeds without exposing a token; publish
-  authorization is confirmed by the release preflight or the release stops.
-- [ ] The final PRD/design/implementation review has no unresolved product or
-  release-risk decision before implementation starts.
-- [ ] `C -> E` direct-child release evidence is validated from Git objects.
-- [ ] The exact tarball digest is equal before and immediately before publish.
-- [ ] Tarball contents equal the individual-file allowlist and install offline
+- [x] The current npm login succeeds without exposing a token; publish
+  authorization was confirmed by the final publisher.
+- [x] The final PRD/design/implementation review has no unresolved product or
+  release-risk decision.
+- [x] `C -> E` direct-child release evidence is validated from Git objects.
+- [x] The exact tarball digest is equal before and immediately before publish.
+- [x] Tarball contents equal the individual-file allowlist and install offline
   with lifecycle scripts disabled.
-- [ ] The target version is an explicit registry 404 before publish.
-- [ ] npm publication either succeeds without token disclosure or fails closed
-  before any GitHub Release/tag push side effect.
+- [x] The target version is an explicit registry 404 before publish.
+- [x] npm publication succeeded without token disclosure and without creating a
+  GitHub Release.
 
 ## Out Of Scope
 
@@ -82,8 +82,12 @@ gates prove the intended scope/version is publishable.
 - Project-level approval, registration, or whitelist state.
 - Publishing a version other than the verified package version.
 
-## Operational Blocker
+## Publication Evidence
 
-There is no product-scope open question. The remaining operational gate is
-whether npm authorizes `pennix` to create the new `@pennixrv` scoped package;
-the release preflight will test this only after all immutable local gates pass.
+- Source commit `C`: `f72dadf21979d16c58ed1cb77dfaf9980027aae6`
+- Evidence commit `E`: `9e2b9b0ab023277f014cfa10c8486bfbb1a54c69`
+- Annotated tag: `v0.1.0`, pushed to `origin`
+- Tarball SHA-256: `e092a16440adb4b4851e98b8961c1376305fbc3fc9f3c5c68aa09c40fbaa7371`
+- npm dist-tag: `latest -> 0.1.0`
+- Public tarball download SHA-256 equals the attested digest
+- GitHub Release: not created
