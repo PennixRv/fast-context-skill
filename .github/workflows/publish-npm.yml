@@ -116,6 +116,8 @@ jobs:
           node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG, buildArtifact: false }))'
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+      - name: Verify source checkout is clean before artifact download
+        run: test -z "$(git status --porcelain)"
       - uses: actions/download-artifact@v4
         with:
           name: verified-npm-tarball
@@ -128,7 +130,6 @@ jobs:
           TARBALL="verified-tarball/$EXPECTED_TARBALL"
           test -f "$TARBALL"
           test "$(sha256sum "$TARBALL" | awk '{print $1}')" = "$EXPECTED_TARBALL_SHA256"
-          test -z "$(git status --porcelain)"
           SMOKE_DIR="$(mktemp -d)"
           npm install --offline --ignore-scripts --no-audit --no-fund --prefix "$SMOKE_DIR" "$TARBALL"
           node "$SMOKE_DIR/node_modules/@pennixrv/fast-context-skill/scripts/fast-context-search.mjs" --help

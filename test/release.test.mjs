@@ -72,6 +72,7 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(publish, /dist\/attested-package/);
   assert.match(publish, /buildArtifact: false/);
   assert.match(publish, /sudo ln -sf "\$NODE_EXECUTABLE" \/usr\/bin\/node/);
+  assert.ok(publish.indexOf("Verify source checkout is clean before artifact download") < publish.indexOf("actions/download-artifact@v4"));
   assert.match(publish, /tarball_sha256/);
   assert.match(publish, /E404\|404 Not Found/);
   assert.match(tag, /verify-release-evidence\.mjs/);
