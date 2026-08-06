@@ -20,7 +20,7 @@ export function verifyTag({ tag, revision = "HEAD", gitRunner = git, packagePath
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
   try {
-    verifyTag({ tag: process.env.GITHUB_REF_NAME || process.argv[2] });
+    verifyTag({ tag: process.argv[2] || process.env.GITHUB_REF_NAME });
     process.stdout.write("tag ok\n");
   } catch {
     process.stderr.write("tag verification failed\n");
