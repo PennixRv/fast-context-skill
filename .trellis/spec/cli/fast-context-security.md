@@ -124,6 +124,11 @@ build-package --output <directory>
   `workflow_dispatch` checkout of a different ref.
 - The publisher accepts one exact lifecycle-disabled tarball and rechecks its
   digest immediately before `npm publish`.
+- npm pack can preserve identical tar bytes while emitting a different gzip
+  deflate stream on another runner build, even when Node and npm versions are
+  pinned. A fixed-tag workflow must therefore consume a public tarball input
+  whose SHA-256 is already bound by the tag attestation; an independent
+  cross-runner rebuild remains diagnostic evidence and cannot replace it.
 - After publish, the local publisher and CI workflow poll the exact package
   version for a bounded interval before reporting success.
 - npm credentials remain in the active client only; no token bytes enter logs,

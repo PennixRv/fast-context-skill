@@ -67,6 +67,10 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(publish, /rebuilt-npm-tarball-\$\{\{ github\.run_id \}\}/);
   assert.match(publish, /dist\/rebuilt-diagnostic\/\*\.tgz/);
   assert.ok(publish.indexOf("verify-tag.mjs") < publish.indexOf("Build diagnostic tarball"));
+  assert.match(publish, /docs\/releases\/artifacts\/\$RELEASE_TAG\.tgz/);
+  assert.match(publish, /git fetch --no-tags origin "\$GITHUB_SHA"/);
+  assert.match(publish, /dist\/attested-package/);
+  assert.match(publish, /buildArtifact: false/);
   assert.match(publish, /tarball_sha256/);
   assert.match(publish, /E404\|404 Not Found/);
   assert.match(tag, /verify-release-evidence\.mjs/);

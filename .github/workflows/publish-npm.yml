@@ -49,26 +49,37 @@ jobs:
           name: rebuilt-npm-tarball-${{ github.run_id }}
           path: dist/rebuilt-diagnostic/*.tgz
           if-no-files-found: error
+      - name: Load the attested release tarball
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          TARBALL="$(node -p "JSON.parse(require('fs').readFileSync('docs/releases/attestations/' + process.env.RELEASE_TAG + '.json', 'utf8')).artifacts.tarball_filename")"
+          mkdir -p dist/attested-package
+          git fetch --no-tags origin "$GITHUB_SHA"
+          git show "$GITHUB_SHA:docs/releases/artifacts/$RELEASE_TAG.tgz" > "dist/attested-package/$TARBALL"
+          EXPECTED="$(node -p "JSON.parse(require('fs').readFileSync('docs/releases/attestations/' + process.env.RELEASE_TAG + '.json', 'utf8')).artifacts.tarball_sha256")"
+          ACTUAL="$(sha256sum "dist/attested-package/$TARBALL" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          printf '{"filename":"%s"}\n' "$TARBALL" > pack.json
       - run: |
-          node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG }))'
+          node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG, buildArtifact: false }))'
         env:
           RELEASE_TAG: ${{ inputs.tag }}
       - run: npm test
       - run: npm run verify:provenance
       - run: npm run pack:check
-      - run: node scripts/release/build-package.mjs --output dist/verified-package > pack.json
       - name: Record exact tarball digest
         id: pack
         shell: bash
         run: |
           TARBALL="$(node -p "JSON.parse(require('fs').readFileSync('pack.json','utf8')).filename")"
-          SHA256="$(sha256sum "dist/verified-package/$TARBALL" | awk '{print $1}')"
+          SHA256="$(sha256sum "dist/attested-package/$TARBALL" | awk '{print $1}')"
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "tarball_sha256=$SHA256" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: verified-npm-tarball
-          path: dist/verified-package/${{ steps.pack.outputs.tarball }}
+          path: dist/attested-package/${{ steps.pack.outputs.tarball }}
           if-no-files-found: error
     outputs:
       tarball: ${{ steps.pack.outputs.tarball }}
@@ -96,7 +107,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
       - run: |
-          node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG }))'
+          node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG, buildArtifact: false }))'
         env:
           RELEASE_TAG: ${{ inputs.tag }}
       - uses: actions/download-artifact@v4
