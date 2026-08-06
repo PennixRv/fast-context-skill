@@ -87,3 +87,74 @@ const result = await search({ query, guard, apiKey: key });
 
 Never add an approval file, registration, whitelist, global configuration, or
 credential-discovery fallback to make the external request easier to invoke.
+
+## Scenario: Tag-Bound npm Publication
+
+### 1. Scope / Trigger
+
+Release validation is required for every published package version. The npm
+artifact must be built from a clean source commit and remain bound to an
+annotated tag through a direct-child evidence commit.
+
+### 2. Signatures
+
+```text
+release:preflight
+release:verify-evidence -- v<major>.<minor>.<patch>
+release:publish -- --tag v<major>.<minor>.<patch> --tarball <exact-path>
+```
+
+### 3. Contracts
+
+- `C` is the clean source commit; `E` is its direct child and changes only the
+  content-free attestation JSON.
+- The annotated tag peels to `E` and binds `C`, `E`, package/version, source
+  provenance, package manifest, canonical/raw attestation, and tarball SHA-256.
+- The publisher accepts one exact lifecycle-disabled tarball and rechecks its
+  digest immediately before `npm publish`.
+- npm credentials remain in the active client only; no token bytes enter logs,
+  source, package contents, tag messages, or Trellis artifacts.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Missing or lightweight tag | Reject before publish |
+| Non-annotated, retargeted, dirty, or unrelated evidence commit | Reject before publish |
+| Tarball filename or digest mismatch | Reject before publish |
+| Existing target version, auth failure, or non-404 registry response before publish | Reject before publish |
+| Published version metadata temporarily returns 404 | Do not republish; confirm dist-tags, public tarball HTTP 200, and immutable-version conflict evidence |
+
+### 5. Good, Base, And Bad Cases
+
+- Good: `C -> E -> v0.1.0`, exact tarball digest, explicit pre-publish 404,
+  and public tarball digest equal to the local artifact.
+- Base: Registry metadata lags after a successful publish; `npm dist-tag ls`
+  and the public tarball endpoint establish visibility without republishing.
+- Bad: A second publish is attempted because a post-publish `npm view` call
+  still reports a cached 404.
+
+### 6. Tests Required
+
+- Evidence tests assert direct-child ancestry and an attestation-only diff.
+- Release tests assert canonical/raw digest separation and strict tag metadata.
+- Offline tests assert the exact package allowlist and packed install.
+- Operator verification records `npm dist-tag ls`, public tarball HTTP status,
+  and downloaded tarball SHA-256 after publication.
+
+### 7. Wrong Vs Correct
+
+Wrong:
+
+```text
+npm view package@version -> 404
+npm publish package.tgz again
+```
+
+Correct:
+
+```text
+npm dist-tag ls package
+curl package/-/package-version.tgz
+compare downloaded SHA-256 with the attested artifact
+```
