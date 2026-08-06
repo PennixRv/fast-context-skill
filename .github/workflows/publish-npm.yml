@@ -95,6 +95,8 @@ jobs:
   publish:
     needs: validate
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ""
     permissions:
       contents: read
       id-token: write
