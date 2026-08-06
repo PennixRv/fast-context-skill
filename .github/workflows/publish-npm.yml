@@ -24,12 +24,12 @@ jobs:
           node-version: "22"
       - run: npm install --global npm@12.0.1
       - run: npm ci --ignore-scripts
-      - run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
+      - run: node --input-type=module -e 'import("./scripts/release/verify-tag.mjs").then(({ verifyTag }) => verifyTag({ tag: process.env.RELEASE_TAG }))'
         env:
-          GITHUB_REF_NAME: ""
-      - run: node scripts/release/verify-release-evidence.mjs "${{ inputs.tag }}"
+          RELEASE_TAG: ${{ inputs.tag }}
+      - run: node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG }))'
         env:
-          GITHUB_REF_NAME: ""
+          RELEASE_TAG: ${{ inputs.tag }}
       - run: npm test
       - run: npm run verify:provenance
       - run: npm run pack:check
@@ -68,12 +68,12 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install --global npm@12.0.1
       - run: npm ci --ignore-scripts
-      - run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
+      - run: node --input-type=module -e 'import("./scripts/release/verify-tag.mjs").then(({ verifyTag }) => verifyTag({ tag: process.env.RELEASE_TAG }))'
         env:
-          GITHUB_REF_NAME: ""
-      - run: node scripts/release/verify-release-evidence.mjs "${{ inputs.tag }}"
+          RELEASE_TAG: ${{ inputs.tag }}
+      - run: node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG }))'
         env:
-          GITHUB_REF_NAME: ""
+          RELEASE_TAG: ${{ inputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           name: verified-npm-tarball
