@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-08-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~61 | Active |
+| `journal-1.md` | ~84 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-08-06 | Publish verified Fast Context npm package | `f72dadf`, `9e2b9b0`, `2269da4` | `main` |
 | 2 | 2026-08-06 | Harden Fast Context search and release gates | `33303b0` | `main` |
 | 1 | 2026-08-06 | Bootstrap Trellis asset ownership | `cfbe51e7614880e57d62cc9046b4bf250278a612` | `main` |
 <!-- @@@/auto:session-history -->
