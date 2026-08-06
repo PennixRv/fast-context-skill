@@ -45,6 +45,11 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.doesNotMatch(publish, /contents: write/);
   assert.doesNotMatch(publish, /schedule:/);
   assert.match(publish, /--ignore-scripts/);
+  assert.match(publish, /Publish exact tarball with npm Trusted Publisher/);
+  assert.match(publish, /unset NODE_AUTH_TOKEN/);
+  assert.doesNotMatch(publish, /npm publish[^\n]*--provenance/);
+  assert.match(publish, /npm audit signatures/);
+  assert.match(publish, /package-manager-cache: false/);
   assert.match(ci, /npm pack --dry-run --json --ignore-scripts/);
   assert.match(tag, /npm pack --dry-run --json --ignore-scripts/);
   assert.match(ci, /build-package\.mjs --output/);

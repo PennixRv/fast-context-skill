@@ -22,6 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "26.5.1"
+          package-manager-cache: false
       - run: npm install --global npm@12.0.1
       - run: npm ci --ignore-scripts
       - run: |
@@ -106,6 +107,7 @@ jobs:
         with:
           node-version: "26.5.1"
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - run: npm install --global npm@12.0.1
       - run: npm ci --ignore-scripts
       - run: |
@@ -151,12 +153,13 @@ jobs:
             echo "registry lookup did not return an explicit 404"
             exit 1
           fi
-      - name: Publish exact tarball
+      - name: Publish exact tarball with npm Trusted Publisher
         env:
           PACKAGE_NAME: ${{ needs.validate.outputs.tarball }}
         run: |
           TARBALL_PATH="$GITHUB_WORKSPACE/verified-tarball/$PACKAGE_NAME"
-          npm publish "$TARBALL_PATH" --provenance --access public --ignore-scripts
+          unset NODE_AUTH_TOKEN
+          npm publish "$TARBALL_PATH" --access public --ignore-scripts
       - name: Poll registry for exact published version
         shell: bash
         run: |
@@ -170,3 +173,12 @@ jobs:
           done
           echo "published version did not become visible"
           exit 1
+      - name: Verify npm registry signatures and attestations
+        shell: bash
+        run: |
+          PACKAGE="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          VERIFY_DIR="$(mktemp -d)"
+          npm init --yes --prefix "$VERIFY_DIR" >/dev/null
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$VERIFY_DIR" "$PACKAGE@$VERSION"
+          npm audit signatures --prefix "$VERIFY_DIR"

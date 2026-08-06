@@ -64,8 +64,10 @@ release sequence is:
    `docs/releases/attestations/v0.1.1.json`.
 4. Create annotated immutable `v0.1.1` pointing at `E`; verify ancestry and all
    bound digests.
-5. Publish the exact tag via the existing npm workflow, refusing an existing
-   registry version and using provenance. Do not create a GitHub Release.
+5. Publish the exact tag via the npm Trusted Publisher workflow, refusing an
+   existing registry version. The public GitHub repository and exact
+   `publish-npm.yml` publisher configuration provide OIDC authentication; npm
+   generates provenance automatically. Do not create a GitHub Release.
 6. Poll and inspect the exact registry tarball/version after publish.
 
 If any credential, provenance, tag, clean-tree or registry gate fails, stop
