@@ -63,6 +63,9 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(readFileSync("scripts/release/verify-release-evidence.mjs", "utf8"), /process\.argv\[2\] \|\| process\.env\.GITHUB_REF_NAME/);
   assert.match(publish, /actions\/upload-artifact@v4/);
   assert.match(publish, /actions\/download-artifact@v4/);
+  assert.match(publish, /Build diagnostic tarball before release evidence verification/);
+  assert.match(publish, /rebuilt-npm-tarball-\$\{\{ github\.run_id \}\}/);
+  assert.match(publish, /dist\/rebuilt-diagnostic\/\*\.tgz/);
   assert.match(publish, /tarball_sha256/);
   assert.match(publish, /E404\|404 Not Found/);
   assert.match(tag, /verify-release-evidence\.mjs/);

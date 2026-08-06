@@ -37,6 +37,14 @@ jobs:
           NODE
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+      - name: Build diagnostic tarball before release evidence verification
+        run: node scripts/release/build-package.mjs --output dist/rebuilt-diagnostic > rebuilt-package.json
+      - name: Retain diagnostic tarball when the immutable digest gate fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-npm-tarball-${{ github.run_id }}
+          path: dist/rebuilt-diagnostic/*.tgz
+          if-no-files-found: error
       - run: |
           node --input-type=module -e 'import("./scripts/release/verify-tag.mjs").then(({ verifyTag }) => verifyTag({ tag: process.env.RELEASE_TAG }))'
         env:
