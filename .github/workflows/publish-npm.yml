@@ -128,10 +128,11 @@ jobs:
           EXPECTED_TARBALL_SHA256: ${{ needs.validate.outputs.tarball_sha256 }}
         run: |
           TARBALL="verified-tarball/$EXPECTED_TARBALL"
-          test -f "$TARBALL"
-          test "$(sha256sum "$TARBALL" | awk '{print $1}')" = "$EXPECTED_TARBALL_SHA256"
+          TARBALL_PATH="$GITHUB_WORKSPACE/$TARBALL"
+          test -f "$TARBALL_PATH"
+          test "$(sha256sum "$TARBALL_PATH" | awk '{print $1}')" = "$EXPECTED_TARBALL_SHA256"
           SMOKE_DIR="$(mktemp -d)"
-          npm install --offline --ignore-scripts --no-audit --no-fund --prefix "$SMOKE_DIR" "$TARBALL"
+          npm install --offline --ignore-scripts --no-audit --no-fund --prefix "$SMOKE_DIR" "$TARBALL_PATH"
           node "$SMOKE_DIR/node_modules/@pennixrv/fast-context-skill/scripts/fast-context-search.mjs" --help
       - name: Require an explicit registry 404
         shell: bash
