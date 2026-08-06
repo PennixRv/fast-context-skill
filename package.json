@@ -1,5 +1,5 @@
 {
-  "name": "fast-context-skill",
+  "name": "@pennixrv/fast-context-skill",
   "version": "0.1.0",
   "description": "Agent Skill and CLI adaptation of fast-context-mcp that runs Windsurf Devstral semantic code search without an MCP server.",
   "license": "MIT",
@@ -9,25 +9,33 @@
   },
   "files": [
     "SKILL.md",
-    "agents/",
-    "references/",
-    "scripts/",
-    "LICENSE",
+    "README.md",
     "NOTICE.md",
-    "README.md"
+    "LICENSE",
+    "references/script-contract.md",
+    "agents/openai.yaml",
+    "scripts/fast-context-search.mjs",
+    "scripts/lib/LICENSE.fast-context-mcp",
+    "scripts/lib/core.mjs",
+    "scripts/lib/executor.mjs",
+    "scripts/lib/path-guard.mjs",
+    "scripts/lib/protobuf.mjs",
+    "scripts/lib/public-error.mjs"
   ],
   "scripts": {
     "search": "node scripts/fast-context-search.mjs",
-    "test": "node --check scripts/fast-context-search.mjs && node --check scripts/lib/core.mjs && node scripts/fast-context-search.mjs --help >/dev/null && node test/cli.mjs"
+    "test": "node --test test/*.test.mjs",
+    "verify:provenance": "node scripts/release/verify-provenance.mjs",
+    "pack:check": "node test/package-content.test.mjs"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/oulkurt/fast-context-skill.git"
+    "url": "git+https://github.com/pennixrv/fast-context-skill.git"
   },
   "bugs": {
-    "url": "https://github.com/oulkurt/fast-context-skill/issues"
+    "url": "https://github.com/pennixrv/fast-context-skill/issues"
   },
-  "homepage": "https://github.com/oulkurt/fast-context-skill#readme",
+  "homepage": "https://github.com/pennixrv/fast-context-skill#readme",
   "keywords": [
     "agent-skill",
     "skills-cli",
@@ -39,9 +47,7 @@
     "devstral",
     "code-search"
   ],
-  "dependencies": {
-    "@vscode/ripgrep": "^1.15.9",
-    "sql.js": "^1.14.0",
-    "tree-node-cli": "^1.6.0"
+  "engines": {
+    "node": ">=20"
   }
 }

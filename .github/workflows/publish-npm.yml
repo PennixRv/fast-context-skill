@@ -1,0 +1,102 @@
+name: Publish npm (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Annotated release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release/verify-tag.mjs
+      - run: npm test
+      - run: npm run verify:provenance
+      - run: npm run pack:check
+      - run: npm pack --ignore-scripts --json > pack.json
+      - name: Record exact tarball digest
+        id: pack
+        shell: bash
+        run: |
+          TARBALL="$(node -p "JSON.parse(require('fs').readFileSync('pack.json','utf8'))[0].filename")"
+          SHA256="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "tarball_sha256=$SHA256" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-npm-tarball
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      tarball_sha256: ${{ steps.pack.outputs.tarball_sha256 }}
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release/verify-tag.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-npm-tarball
+          path: verified-tarball
+      - name: Recheck exact tarball, offline install, and cleanliness
+        env:
+          EXPECTED_TARBALL: ${{ needs.validate.outputs.tarball }}
+          EXPECTED_TARBALL_SHA256: ${{ needs.validate.outputs.tarball_sha256 }}
+        run: |
+          TARBALL="verified-tarball/$EXPECTED_TARBALL"
+          test -f "$TARBALL"
+          test "$(sha256sum "$TARBALL" | awk '{print $1}')" = "$EXPECTED_TARBALL_SHA256"
+          test -z "$(git status --porcelain)"
+          SMOKE_DIR="$(mktemp -d)"
+          npm install --offline --ignore-scripts --no-audit --no-fund --prefix "$SMOKE_DIR" "$TARBALL"
+      - name: Require an explicit registry 404
+        shell: bash
+        run: |
+          PACKAGE="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          set +e
+          npm view "$PACKAGE@$VERSION" version --json > registry.json 2> registry.err
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "version already exists"
+            exit 1
+          fi
+          if ! grep -Eq 'E404|404 Not Found' registry.err; then
+            echo "registry lookup did not return an explicit 404"
+            exit 1
+          fi
+      - name: Publish exact tarball
+        env:
+          PACKAGE_NAME: ${{ needs.validate.outputs.tarball }}
+        run: |
+          TARBALL="verified-tarball/$PACKAGE_NAME"
+          npm publish "$TARBALL" --provenance --access public --ignore-scripts

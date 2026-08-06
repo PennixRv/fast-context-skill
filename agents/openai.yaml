@@ -1,7 +1,7 @@
 interface:
   display_name: "Fast Context"
-  short_description: "Semantic code context retrieval"
-  default_prompt: "Use $fast-context to gather complete codebase context before planning this change."
+  short_description: "On-demand semantic code candidates"
+  default_prompt: "Use $fast-context only after local search and CodeGraph cannot identify the relevant code location."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

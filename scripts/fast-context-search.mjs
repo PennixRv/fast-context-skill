@@ -1,290 +1,132 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { PathGuard } from "./lib/path-guard.mjs";
+import { FastContextError, publicDiagnostic } from "./lib/public-error.mjs";
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const SKILL_DIR = resolve(SCRIPT_DIR, "..");
-const CORE_PATH = join(SCRIPT_DIR, "lib", "core.mjs");
+const MAX_QUERY_LENGTH = 2000;
+const MAX_RESULTS = 50;
 
-function usage() {
-  return `Usage:
-  fast-context-search --query <query> [--project <path>] [options]
-  fast-context-search --check-key [--db-path <path>]
-  fast-context-search --print-key [--db-path <path>]
-  fast-context-search --key-env [--db-path <path>]
+const USAGE = `Usage:
+  fast-context-search --project <directory> --query <text> [--max-results <n>] [--deny <relative-glob> ...]
+  fast-context-search --help`;
 
-Options:
-  -q, --query <text>              Natural-language search query
-  -p, --project <path>            Project root (default: current directory)
-      --project-path <path>       Alias for --project
-      --max-results <n>           Max files to return (default: 10)
-      --max-turns <n>             Search rounds (default: 3)
-      --max-commands <n>          Local commands per round (default: 8)
-      --tree-depth <n>            Repo tree depth, 0 for auto (default: 0)
-      --timeout-ms <n>            Request timeout (default: 30000)
-      --exclude <patterns>        Comma-separated excludes; may be repeated
-      --repo-map-mode <mode>      classic or bootstrap_hotspot
-      --bootstrap-tree-depth <n>  Bootstrap tree depth
-      --hotspot-top-k <n>         Hotspot directory count
-      --hotspot-tree-depth <n>    Hotspot subtree depth
-      --hotspot-max-bytes <n>     Hotspot repo-map byte budget
-      --bootstrap-enabled         Enable bootstrap phase
-      --no-bootstrap              Disable bootstrap phase
-      --bootstrap-max-turns <n>   Bootstrap phase turns
-      --bootstrap-max-commands <n> Bootstrap commands per turn
-      --check-key                 Verify Windsurf key discovery without printing the full key
-      --print-key                 Print the full discovered Windsurf key to stdout
-      --key-env                   Print an export command for WINDSURF_API_KEY
-      --db-path <path>            Custom Windsurf state.vscdb path for key commands
-      --help                      Show this help`;
+function cliError(code) {
+  return new FastContextError(code);
 }
 
-function parseInteger(name, value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`${name} must be an integer, received: ${value}`);
+function takeValue(argv, index) {
+  const value = argv[index + 1];
+  if (value == null || value.startsWith("--")) throw cliError("FC_ARG_VALUE_MISSING");
+  return value;
+}
+
+function takeInteger(value) {
+  if (!/^\d+$/.test(value)) throw cliError("FC_PATH_INVALID");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_RESULTS) {
+    throw cliError("FC_PATH_INVALID");
   }
   return parsed;
 }
 
-function takeValue(args, index, name) {
-  const value = args[index + 1];
-  if (value == null || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`);
+export function parseArgs(argv) {
+  if (argv.length === 1 && argv[0] === "--help") return { help: true };
+
+  const options = {
+    project: null,
+    query: null,
+    maxResults: 10,
+    deny: [],
+  };
+  const seen = new Set();
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--project-path") throw cliError("FC_PROJECT_ALIAS");
+    if (argument === "--help") throw cliError("FC_ARG_UNKNOWN");
+    if (argument === "--project" || argument === "--query" || argument === "--max-results") {
+      if (seen.has(argument)) {
+        throw cliError(argument === "--project" ? "FC_PROJECT_DUPLICATE" : "FC_ARG_DUPLICATE");
+      }
+      seen.add(argument);
+      const value = takeValue(argv, index);
+      index += 1;
+      if (argument === "--project") options.project = value;
+      if (argument === "--query") options.query = value;
+      if (argument === "--max-results") options.maxResults = takeInteger(value);
+      continue;
+    }
+    if (argument === "--deny") {
+      const value = takeValue(argv, index);
+      options.deny.push(value);
+      index += 1;
+      continue;
+    }
+    throw cliError("FC_ARG_UNKNOWN");
+  }
+
+  if (!options.project) throw cliError("FC_PROJECT_REQUIRED");
+  if (!options.query) throw cliError("FC_QUERY_REQUIRED");
+  if (options.query.length > MAX_QUERY_LENGTH) throw cliError("FC_OUTPUT_LIMIT");
+  return options;
+}
+
+function requireApiKey(environment) {
+  const value = environment?.WINDSURF_API_KEY;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw cliError("FC_KEY_MISSING");
   }
   return value;
 }
 
-function pushExclude(target, raw) {
-  for (const item of String(raw).split(",")) {
-    const trimmed = item.trim();
-    if (trimmed) target.push(trimmed);
-  }
+function errorStatus(error) {
+  return String(error?.code || "").startsWith("FC_ARG") ||
+    String(error?.code || "").startsWith("FC_PROJECT") ||
+    error?.code === "FC_QUERY_REQUIRED" ||
+    error?.code === "FC_PROJECT_ALIAS" ||
+    error?.code === "FC_PROJECT_DUPLICATE"
+    ? 2
+    : 1;
 }
 
-function parseArgs(argv) {
-  const opts = {
-    projectRoot: process.cwd(),
-    maxResults: 10,
-    maxTurns: 3,
-    maxCommands: 8,
-    treeDepth: 0,
-    timeoutMs: 30000,
-    excludePaths: [],
-    repoMapMode: "bootstrap_hotspot",
-    bootstrapEnabled: true,
-    bootstrapTreeDepth: 1,
-    hotspotTopK: 4,
-    hotspotTreeDepth: 2,
-    hotspotMaxBytes: 120 * 1024,
-    bootstrapMaxTurns: 2,
-    bootstrapMaxCommands: 6,
-    checkKey: false,
-    printKey: false,
-    keyEnv: false,
-    dbPath: undefined,
-    help: false,
-  };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    switch (arg) {
-      case "-q":
-      case "--query":
-        opts.query = takeValue(argv, i, arg);
-        i++;
-        break;
-      case "-p":
-      case "--project":
-      case "--project-path":
-        opts.projectRoot = takeValue(argv, i, arg);
-        i++;
-        break;
-      case "--max-results":
-        opts.maxResults = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--max-turns":
-        opts.maxTurns = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--max-commands":
-        opts.maxCommands = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--tree-depth":
-        opts.treeDepth = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--timeout-ms":
-        opts.timeoutMs = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--exclude":
-        pushExclude(opts.excludePaths, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--repo-map-mode":
-        opts.repoMapMode = takeValue(argv, i, arg);
-        i++;
-        break;
-      case "--bootstrap-tree-depth":
-        opts.bootstrapTreeDepth = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--hotspot-top-k":
-        opts.hotspotTopK = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--hotspot-tree-depth":
-        opts.hotspotTreeDepth = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--hotspot-max-bytes":
-        opts.hotspotMaxBytes = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--bootstrap-enabled":
-        opts.bootstrapEnabled = true;
-        break;
-      case "--no-bootstrap":
-        opts.bootstrapEnabled = false;
-        break;
-      case "--bootstrap-max-turns":
-        opts.bootstrapMaxTurns = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--bootstrap-max-commands":
-        opts.bootstrapMaxCommands = parseInteger(arg, takeValue(argv, i, arg));
-        i++;
-        break;
-      case "--check-key":
-        opts.checkKey = true;
-        break;
-      case "--print-key":
-        opts.printKey = true;
-        break;
-      case "--key-env":
-        opts.keyEnv = true;
-        break;
-      case "--db-path":
-        opts.dbPath = takeValue(argv, i, arg);
-        i++;
-        break;
-      case "-h":
-      case "--help":
-        opts.help = true;
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  opts.projectRoot = resolve(opts.projectRoot);
-  if (opts.dbPath) opts.dbPath = resolve(opts.dbPath);
-  opts.excludePaths = [...new Set(opts.excludePaths)];
-  const keyCommandCount = [opts.checkKey, opts.printKey, opts.keyEnv].filter(Boolean).length;
-  if (keyCommandCount > 1) {
-    throw new Error("Choose only one key command: --check-key, --print-key, or --key-env");
-  }
-  return opts;
-}
-
-function maskKey(key) {
-  if (!key) return "";
-  if (key.length <= 12) return `${key.slice(0, 2)}...${key.slice(-2)}`;
-  return `${key.slice(0, 8)}...${key.slice(-6)}`;
-}
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
-
-async function loadCore() {
-  if (!existsSync(CORE_PATH)) {
-    throw new Error(
-      `Fast Context vendored core is missing at ${CORE_PATH}\n` +
-        `Reinstall or repair the $fast-context skill.`
-    );
-  }
-  return import(pathToFileURL(CORE_PATH).href);
-}
-
-async function main() {
-  let opts;
+export async function runCli({
+  argv,
+  environment = process.env,
+  stdout = process.stdout,
+  stderr = process.stderr,
+  loadCore = () => import("./lib/core.mjs"),
+} = {}) {
   try {
-    opts = parseArgs(process.argv.slice(2));
-  } catch (error) {
-    console.error(`Error: ${error.message}\n`);
-    console.error(usage());
-    process.exit(2);
-  }
-
-  if (opts.help) {
-    console.log(usage());
-    return;
-  }
-
-  try {
-    const { searchWithContent, extractKeyInfo } = await loadCore();
-
-    if (opts.checkKey || opts.printKey || opts.keyEnv) {
-      const result = await extractKeyInfo(opts.dbPath);
-      if (result.error) {
-        console.error(`Windsurf key discovery failed: ${result.error}`);
-        if (result.hint) console.error(result.hint);
-        if (result.db_path) console.error(`DB path: ${result.db_path}`);
-        process.exit(1);
-      }
-
-      if (opts.printKey) {
-        console.log(result.api_key);
-        return;
-      }
-
-      if (opts.keyEnv) {
-        console.log(`export WINDSURF_API_KEY=${shellQuote(result.api_key)}`);
-        return;
-      }
-
-      console.log("Windsurf key discovered.");
-      console.log(`Key: ${maskKey(result.api_key)}`);
-      console.log(`Source: ${result.db_path}`);
-      return;
+    const options = parseArgs(argv || []);
+    if (options.help) {
+      stdout.write(`${USAGE}\n`);
+      return 0;
     }
 
-    if (!opts.query) {
-      console.error("Error: --query is required.\n");
-      console.error(usage());
-      process.exit(2);
-    }
-
-    const output = await searchWithContent({
-      query: opts.query,
-      projectRoot: opts.projectRoot,
-      maxTurns: opts.maxTurns,
-      maxCommands: opts.maxCommands,
-      maxResults: opts.maxResults,
-      treeDepth: opts.treeDepth,
-      timeoutMs: opts.timeoutMs,
-      excludePaths: opts.excludePaths,
-      repoMapMode: opts.repoMapMode,
-      bootstrapTreeDepth: opts.bootstrapTreeDepth,
-      hotspotTopK: opts.hotspotTopK,
-      hotspotTreeDepth: opts.hotspotTreeDepth,
-      hotspotMaxBytes: opts.hotspotMaxBytes,
-      bootstrapEnabled: opts.bootstrapEnabled,
-      bootstrapMaxTurns: opts.bootstrapMaxTurns,
-      bootstrapMaxCommands: opts.bootstrapMaxCommands,
+    const guard = new PathGuard(options.project, options.deny);
+    const apiKey = requireApiKey(environment);
+    const { search } = await loadCore();
+    const result = await search({
+      query: options.query,
+      guard,
+      apiKey,
+      maxResults: options.maxResults,
     });
-
-    console.log(output);
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return 0;
   } catch (error) {
-    console.error(`Error: ${error.message}`);
-    process.exit(1);
+    const safeError = error instanceof FastContextError
+      ? error
+      : new FastContextError("FC_REMOTE_UNAVAILABLE");
+    stderr.write(`${safeError.code}: ${publicDiagnostic(safeError)}\n`);
+    return errorStatus(safeError);
   }
 }
 
-main();
+if (process.argv[1] && process.argv[1].endsWith("fast-context-search.mjs")) {
+  runCli({ argv: process.argv.slice(2) }).then((status) => {
+    process.exitCode = status;
+  });
+}
+
+export { MAX_QUERY_LENGTH, MAX_RESULTS, USAGE };

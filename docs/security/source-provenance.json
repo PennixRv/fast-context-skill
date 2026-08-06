@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "package": "@pennixrv/fast-context-skill@0.1.0",
+  "baseline": {
+    "repository": "https://github.com/pennixrv/fast-context-skill",
+    "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"
+  },
+  "expected_runtime_paths": [
+    "LICENSE",
+    "NOTICE.md",
+    "README.md",
+    "SKILL.md",
+    "agents/openai.yaml",
+    "package.json",
+    "references/script-contract.md",
+    "scripts/fast-context-search.mjs",
+    "scripts/lib/LICENSE.fast-context-mcp",
+    "scripts/lib/core.mjs",
+    "scripts/lib/executor.mjs",
+    "scripts/lib/path-guard.mjs",
+    "scripts/lib/protobuf.mjs",
+    "scripts/lib/public-error.mjs"
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Project MIT license retained for the fork.",
+      "shipped_sha256": "bb9a2ce78d8b8ca19db1bb4ddc68b02aa1959487d28fc472d8414ede53cc3df1"
+    },
+    {
+      "path": "NOTICE.md",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Fork attribution and excluded upstream surfaces.",
+      "shipped_sha256": "cc25264b880d726f158bfa046bfdbe6871adb2ad86ebad3ecacad1f68410d61f"
+    },
+    {
+      "path": "README.md",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Local-first operating and security documentation.",
+      "shipped_sha256": "895cb2d70493b5b7f4221ce536aa0634ac3efaaa78348092d486ef3d79ce65cc"
+    },
+    {
+      "path": "SKILL.md",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "On-demand Skill routing without approval state.",
+      "shipped_sha256": "db120e9755cca11a60e75dd1e0a4185d7a9c16da1893016245ad8290eb88ff6c"
+    },
+    {
+      "path": "agents/openai.yaml",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Disabled implicit invocation for the external helper.",
+      "shipped_sha256": "aebd71c4e099fe3140869cfee84b6b58e19cd08b1842d86704c04623766926ba"
+    },
+    {
+      "path": "package.json",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Fork repository identity and exact individual-file allowlist.",
+      "shipped_sha256": "5daa47dc6c44ad8c9fad8738072e9218711c9561b2ac9ab793399ae02baedb5f"
+    },
+    {
+      "path": "references/script-contract.md",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Finite CLI and redacted output contract.",
+      "shipped_sha256": "4f30dec8d4f935e0915b6f0c893e4672db7b714563afdeb46c67d6ddc0bdfde5"
+    },
+    {
+      "path": "scripts/fast-context-search.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Finite CLI parser and pre-network explicit-key boundary.",
+      "shipped_sha256": "3626b1718db131eda4e5d31dadcc6195f3abe865bf49e4f227f6974c7246db89"
+    },
+    {
+      "path": "scripts/lib/LICENSE.fast-context-mcp",
+      "classification": "vendored",
+      "source_repository": "https://github.com/SammySnake-d/fast-context-mcp",
+      "source_commit": "af65ce77a408656c815444397ef6892c47a96c0a",
+      "source_path": "LICENSE",
+      "upstream_sha256": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
+      "shipped_sha256": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
+      "license_reference": "NOTICE.md and scripts/lib/LICENSE.fast-context-mcp",
+      "change_summary": "Unmodified upstream MIT notice retained with the fork."
+    },
+    {
+      "path": "scripts/lib/core.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Bounded protocol client with local candidate revalidation.",
+      "shipped_sha256": "aac27a32ef6a69154eb6dc45ea62cb5354fd79a3a80deb8cc13bd92d078d90e7"
+    },
+    {
+      "path": "scripts/lib/executor.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Guarded local primitives and fixed ripgrep invocation.",
+      "shipped_sha256": "2997dd9e757767ee4be0ad9d8aa6dc2725337f7e581db832c2196253ccf35d78"
+    },
+    {
+      "path": "scripts/lib/path-guard.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Canonical containment, immutable deny set, and bounded walking.",
+      "shipped_sha256": "a373b173f5691c9ff5930e2c1ab2965df932b3b3dd573db38648a9c06041c537"
+    },
+    {
+      "path": "scripts/lib/protobuf.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Fork-maintained minimal Connect and Protobuf codec.",
+      "shipped_sha256": "b3ae5d4f31de89c3750eff1c8a4e4c5b5a26d4934b44a9e3ab40526cc52c2c76"
+    },
+    {
+      "path": "scripts/lib/public-error.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Closed public diagnostic map for redacted failures.",
+      "shipped_sha256": "0b68f06fd96bea52f805362515e60ad0a82315af45ce793a26b686a3837fc552"
+    }
+  ]
+}
