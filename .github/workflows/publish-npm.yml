@@ -65,6 +65,11 @@ jobs:
           node --input-type=module -e 'import("./scripts/release/verify-release-evidence.mjs").then(({ verifyReleaseEvidence }) => verifyReleaseEvidence({ tag: process.env.RELEASE_TAG, buildArtifact: false }))'
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+      - name: Expose setup-node runtime to empty test environments
+        run: |
+          NODE_EXECUTABLE="$(command -v node)"
+          test -x "$NODE_EXECUTABLE"
+          sudo ln -sf "$NODE_EXECUTABLE" /usr/local/bin/node
       - run: npm test
       - run: npm run verify:provenance
       - run: npm run pack:check
