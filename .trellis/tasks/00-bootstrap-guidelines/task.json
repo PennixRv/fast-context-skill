@@ -1,0 +1,32 @@
+{
+  "id": "00-bootstrap-guidelines",
+  "name": "00-bootstrap-guidelines",
+  "title": "Bootstrap Trellis Asset Ownership",
+  "description": "Establish Git ownership for durable Trellis assets and remove native Codex subagent dispatch",
+  "status": "in_progress",
+  "dev_type": "docs",
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "penn",
+  "assignee": "penn",
+  "createdAt": "2026-08-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": null,
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/",
+    ".agents/",
+    ".codex/",
+    "AGENTS.md",
+    ".gitattributes"
+  ],
+  "notes": "First-time setup task adapted to the fork bootstrap ownership review; Fast Context source is out of scope.",
+  "meta": {}
+}
