@@ -71,7 +71,7 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(publish, /git fetch --no-tags origin "\$GITHUB_SHA"/);
   assert.match(publish, /dist\/attested-package/);
   assert.match(publish, /buildArtifact: false/);
-  assert.match(publish, /sudo ln -sf "\$NODE_EXECUTABLE" \/usr\/local\/bin\/node/);
+  assert.match(publish, /sudo ln -sf "\$NODE_EXECUTABLE" \/usr\/bin\/node/);
   assert.match(publish, /tarball_sha256/);
   assert.match(publish, /E404\|404 Not Found/);
   assert.match(tag, /verify-release-evidence\.mjs/);

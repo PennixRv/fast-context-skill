@@ -69,7 +69,8 @@ jobs:
         run: |
           NODE_EXECUTABLE="$(command -v node)"
           test -x "$NODE_EXECUTABLE"
-          sudo ln -sf "$NODE_EXECUTABLE" /usr/local/bin/node
+          sudo ln -sf "$NODE_EXECUTABLE" /usr/bin/node
+          /usr/bin/node --version
       - run: npm test
       - run: npm run verify:provenance
       - run: npm run pack:check
