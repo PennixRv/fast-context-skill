@@ -84,7 +84,9 @@ evidence: its source commit omitted the tracked tarball that the tag-bound
 workflow intentionally requires. Neither tag or tarball is moved or repacked.
 `0.1.3` keeps the corrected canonical GitHub URL and adds a release helper that
 creates the tracked tarball before source commit `C`, so preflight can bind and
-verify it before evidence commit `E`.
+verify it before evidence commit `E`. Its rebuilder archives only the package
+allowlist, so historical tracked tarballs cannot exhaust the source archive
+buffer or influence the reconstructed consumer artifact.
 
 The fixed-tag GitHub Actions job verifies a package-scoped repository
 `NPM_TOKEN` without echoing it and publishes the attested tarball with explicit

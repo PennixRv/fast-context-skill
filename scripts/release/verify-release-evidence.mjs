@@ -34,10 +34,20 @@ function gitBytes(args, cwd = PROJECT_ROOT) {
   return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
 }
 
+function packageArchivePaths(manifest) {
+  if (!manifest || !Array.isArray(manifest.files)) throw new Error("package files allowlist is missing");
+  const paths = [...new Set(["package.json", ...manifest.files])].sort();
+  if (paths.some((path) => typeof path !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(path) || path.includes("..") || path.endsWith("/"))) {
+    throw new Error("package files allowlist is unsafe");
+  }
+  return paths;
+}
+
 function buildTarball(commit, projectRoot = PROJECT_ROOT, { stagedConsumerPackage = true } = {}) {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), "fast-context-release-"));
   try {
-    const archive = gitBytes(["archive", "--format=tar", commit], projectRoot);
+    const manifest = JSON.parse(gitBytes(["show", `${commit}:package.json`], projectRoot).toString("utf8"));
+    const archive = gitBytes(["archive", "--format=tar", commit, "--", ...packageArchivePaths(manifest)], projectRoot);
     execFileSync("tar", ["-xf", "-", "-C", temporaryDirectory], { input: archive, stdio: ["pipe", "ignore", "pipe"] });
     if (stagedConsumerPackage) {
       const artifact = buildConsumerPackage({ sourceRoot: temporaryDirectory });
@@ -129,4 +139,4 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   }
 }
 
-export { attestationPathForTag, buildTarball };
+export { attestationPathForTag, buildTarball, packageArchivePaths };

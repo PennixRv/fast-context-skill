@@ -14,7 +14,7 @@ import {
 } from "../scripts/release/attestation.mjs";
 import { parseArguments } from "../scripts/release/publish-release.mjs";
 import { verifyAttestedReleaseArtifact } from "../scripts/release/preflight-release.mjs";
-import { attestationPathForTag } from "../scripts/release/verify-release-evidence.mjs";
+import { attestationPathForTag, packageArchivePaths } from "../scripts/release/verify-release-evidence.mjs";
 
 test("tag verifier requires an annotated, exact, clean version tag", () => {
   const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
@@ -61,6 +61,15 @@ test("release preflight requires the exact tracked tarball before evidence gener
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
+});
+
+test("release rebuild archives only the source package allowlist", () => {
+  assert.deepEqual(
+    packageArchivePaths({ files: ["README.md", "scripts/fast-context-search.mjs"] }),
+    ["README.md", "package.json", "scripts/fast-context-search.mjs"],
+  );
+  assert.throws(() => packageArchivePaths({ files: ["../secret"] }));
+  assert.throws(() => packageArchivePaths({ files: ["scripts/"] }));
 });
 
 test("workflow permissions isolate validation, release, and npm publication", () => {

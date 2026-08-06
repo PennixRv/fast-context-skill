@@ -20,6 +20,11 @@ missing or digest-mismatched tracked artifact before creating evidence commit
 `E`. This is the immutable workflow input downloaded by the CI publisher; a
 runner rebuild is diagnostic only and never replaces it.
 
+The evidence rebuilder archives only `package.json` and the explicit npm
+`files` allowlist from `C`. It must never archive accumulated historical
+release artifacts merely to recreate the consumer package, since that makes
+release verification depend on unrelated repository growth.
+
 Development and offline tests do not read real credentials or call Windsurf.
 Publication runs only in GitHub Actions against the fixed tag. The publish job
 receives a package-scoped `NPM_TOKEN` from the repository Actions secret,
