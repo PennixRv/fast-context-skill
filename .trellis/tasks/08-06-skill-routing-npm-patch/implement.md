@@ -13,7 +13,7 @@
 5. Implement deterministic staging package generation in maintainer-side
    release tooling. Keep source `package.json` scripts intact; exclude tests,
    release scripts, Trellis state and local artifacts from the consumer package.
-6. Make release helpers derive `0.1.1`, `v0.1.1`, attestation and tarball names
+6. Make release helpers derive the current version, tag, attestation and tarball names
    dynamically, while retaining the direct-child `C -> E` evidence contract.
 7. Extend tests for routing metadata, path/symlink/credential/protocol/output
    security, staging manifest, allowlist, README/provenance and packed-install
@@ -23,11 +23,11 @@
 9. Run `trellis-check`, resolve findings, update the relevant spec if a durable
    release/package convention was learned, and review the complete diff.
 10. Commit source changes, build the evidence-only child commit, create the
-    annotated `v0.1.1` tag, and run the tag-bound release verification.
+    annotated `v0.1.2` tag, and run the tag-bound release verification.
 11. Publish only the exact fixed tag through the existing npm workflow with
     provenance; never inspect or print token material and never create a
     GitHub Release.
-12. Poll npm for exact `0.1.1`, download/verify the tarball SHA-256 and file
+12. Poll npm for exact `0.1.2`, download/verify the tarball SHA-256 and file
     contents, then archive the Trellis task and record the session journal.
 
 ## Files And Ownership

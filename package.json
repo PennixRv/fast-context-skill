@@ -1,6 +1,6 @@
 {
   "name": "@pennixrv/fast-context-skill",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Agent Skill and CLI adaptation of fast-context-mcp that runs Windsurf Devstral semantic code search without an MCP server.",
   "license": "MIT",
   "type": "module",
@@ -35,12 +35,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pennixrv/fast-context-skill.git"
+    "url": "git+https://github.com/PennixRv/fast-context-skill.git"
   },
   "bugs": {
-    "url": "https://github.com/pennixrv/fast-context-skill/issues"
+    "url": "https://github.com/PennixRv/fast-context-skill/issues"
   },
-  "homepage": "https://github.com/pennixrv/fast-context-skill#readme",
+  "homepage": "https://github.com/PennixRv/fast-context-skill#readme",
   "keywords": [
     "agent-skill",
     "skills-cli",

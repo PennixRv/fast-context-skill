@@ -61,33 +61,34 @@ release sequence is:
 1. Run all offline/security/package checks on a clean source tree.
 2. Commit source as `C` and build the exact staging tarball/evidence inputs.
 3. Create a direct-child evidence commit `E` changing only
-   `docs/releases/attestations/v0.1.1.json`.
-4. Create annotated immutable `v0.1.1` pointing at `E`; verify ancestry and all
+   `docs/releases/attestations/v0.1.2.json`.
+4. Create annotated immutable `v0.1.2` pointing at `E`; verify ancestry and all
    bound digests.
-5. Publish the exact tag via the npm Trusted Publisher workflow, refusing an
-   existing registry version. The public GitHub repository and exact
-   `publish-npm.yml` publisher configuration provide OIDC authentication; npm
-   generates provenance automatically. Do not create a GitHub Release.
+5. Publish the exact tag with the package-scoped GitHub Actions `NPM_TOKEN`
+   secret and explicit npm provenance, refusing an existing registry version.
+   The public GitHub-hosted runner provides the provenance identity. Do not
+   create a GitHub Release.
 6. Poll and inspect the exact registry tarball/version after publish.
 
 If any credential, provenance, tag, clean-tree or registry gate fails, stop
 without fallback publication or post-publish mutation.
 
-### Publication Checkpoint: 0.1.1
+### Publication Checkpoint: 0.1.2
 
-The immutable `v0.1.1` tag remains the only publish input. npm's public
-provenance documentation requires a public source repository and matching
-repository metadata, and the tarball cannot be rewritten to repair either.
-The npm website Trusted Publisher configuration is not readable or verifiable
-from the release environment, so it is not an operator prerequisite for this
-release. Instead, the fixed-tag GitHub Actions job verifies a package-scoped
-repository `NPM_TOKEN` without echoing it and publishes the attested tarball
-with explicit `--provenance` from the public GitHub-hosted runner. Registry
-attestation verification after publication is the final proof that provenance
-was established.
+`v0.1.1` is retained as immutable rejected evidence: npm accepted the scoped
+token and created the GitHub Actions provenance statement, then rejected the
+PUT with `E422` because its package metadata used
+`pennixrv/fast-context-skill` while provenance identified
+`PennixRv/fast-context-skill`. The tag and its tarball must not be moved or
+repacked. `0.1.2` corrects every public GitHub URL to the canonical casing and
+creates a separate `C -> E -> v0.1.2` evidence chain.
 
-An auth, provenance, tag, clean-tree, or registry failure stops the workflow
-without a second publish attempt, a token fallback, a tag move, or a repack.
+The fixed-tag GitHub Actions job verifies a package-scoped repository
+`NPM_TOKEN` without echoing it and publishes the attested tarball with explicit
+`--provenance` from the public GitHub-hosted runner. Registry attestation
+verification after publication is the final proof that provenance was
+established. An auth, provenance, tag, clean-tree, or registry failure stops
+the workflow without a second publish attempt, a tag move, or a repack.
 
 ## CI And Rollback
 

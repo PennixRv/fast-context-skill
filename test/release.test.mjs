@@ -14,10 +14,15 @@ import { parseArguments } from "../scripts/release/publish-release.mjs";
 import { attestationPathForTag } from "../scripts/release/verify-release-evidence.mjs";
 
 test("tag verifier requires an annotated, exact, clean version tag", () => {
+  const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+  const releaseTag = `v${packageVersion}`;
+  const unexpectedTag = releaseTag === "v0.0.0" ? "v0.0.1" : "v0.0.0";
   const calls = [];
   const values = new Map([
-    ["cat-file -t v0.1.1", "tag"],
-    ["rev-parse v0.1.1^{}", "abc123"],
+    [`cat-file -t ${releaseTag}`, "tag"],
+    [`rev-parse ${releaseTag}^{}`, "abc123"],
+    [`cat-file -t ${unexpectedTag}`, "tag"],
+    [`rev-parse ${unexpectedTag}^{}`, "abc123"],
     ["rev-parse HEAD", "abc123"],
     ["status --porcelain", ""],
   ]);
@@ -25,9 +30,9 @@ test("tag verifier requires an annotated, exact, clean version tag", () => {
     calls.push(args.join(" "));
     return values.get(args.join(" ")) || "";
   };
-  assert.equal(verifyTag({ tag: "v0.1.1", gitRunner }), true);
-  assert.ok(calls.includes("cat-file -t v0.1.1"));
-  assert.throws(() => verifyTag({ tag: "v0.1.2", gitRunner }));
+  assert.equal(verifyTag({ tag: releaseTag, gitRunner }), true);
+  assert.ok(calls.includes(`cat-file -t ${releaseTag}`));
+  assert.throws(() => verifyTag({ tag: unexpectedTag, gitRunner }));
   assert.throws(() => verifyTag({ tag: "0.1.1", gitRunner }));
 });
 

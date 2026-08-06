@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.1",
-  "source_repository": "https://github.com/pennixrv/fast-context-skill",
+  "package": "@pennixrv/fast-context-skill@0.1.2",
+  "source_repository": "https://github.com/PennixRv/fast-context-skill",
   "upstream": {
     "repository": "https://github.com/oulkurt/fast-context-skill",
     "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"

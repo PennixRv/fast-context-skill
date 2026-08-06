@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.1",
+  "package": "@pennixrv/fast-context-skill@0.1.2",
   "baseline": {
-    "repository": "https://github.com/pennixrv/fast-context-skill",
+    "repository": "https://github.com/PennixRv/fast-context-skill",
     "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"
   },
   "expected_runtime_paths": [
@@ -63,7 +63,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Fork repository identity and exact individual-file allowlist.",
-      "shipped_sha256": "51eb498bafff3a5b15c18821d02885c10917b0856cd88930e2b697433a74b15f"
+      "shipped_sha256": "0a13611a5f31ffa9616db18f46f875c8a499c9ec8f53289772b59908a704403a"
     },
     {
       "path": "references/script-contract.md",
@@ -77,7 +77,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "27b521bdf82b4c007a70a4e71dd0d885cee01e3c9d9fe01eb524cc990bb4b70d"
+      "shipped_sha256": "780bdbe9b093bfc6b5b561d0fd333421e4723bb1f4cefb47b65e831ae79e464e"
     },
     {
       "path": "scripts/fast-context-search.mjs",
