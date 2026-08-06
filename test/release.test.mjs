@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { verifyTag } from "../scripts/release/verify-tag.mjs";
 import {
   canonicalAttestationSha256,
   formatTagMetadata,
   parseTagMetadata,
+  sha256Bytes,
   tarballFilename,
   validateAttestation,
 } from "../scripts/release/attestation.mjs";
 import { parseArguments } from "../scripts/release/publish-release.mjs";
+import { verifyAttestedReleaseArtifact } from "../scripts/release/preflight-release.mjs";
 import { attestationPathForTag } from "../scripts/release/verify-release-evidence.mjs";
 
 test("tag verifier requires an annotated, exact, clean version tag", () => {
@@ -34,6 +37,30 @@ test("tag verifier requires an annotated, exact, clean version tag", () => {
   assert.ok(calls.includes(`cat-file -t ${releaseTag}`));
   assert.throws(() => verifyTag({ tag: unexpectedTag, gitRunner }));
   assert.throws(() => verifyTag({ tag: "0.1.1", gitRunner }));
+});
+
+test("release preflight requires the exact tracked tarball before evidence generation", () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "fast-context-attested-tarball-"));
+  const tag = "v0.1.3";
+  const bytes = Buffer.from("attested tarball fixture");
+  const artifact = { sha256: sha256Bytes(bytes) };
+  try {
+    assert.throws(() => verifyAttestedReleaseArtifact({ tag, artifact, projectRoot: temporaryDirectory }));
+    const artifactDirectory = join(temporaryDirectory, "docs", "releases", "artifacts");
+    mkdirSync(artifactDirectory, { recursive: true });
+    writeFileSync(join(artifactDirectory, `${tag}.tgz`), bytes);
+    assert.equal(
+      verifyAttestedReleaseArtifact({ tag, artifact, projectRoot: temporaryDirectory }),
+      join(artifactDirectory, `${tag}.tgz`),
+    );
+    assert.throws(() => verifyAttestedReleaseArtifact({
+      tag,
+      artifact: { sha256: "0".repeat(64) },
+      projectRoot: temporaryDirectory,
+    }));
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test("workflow permissions isolate validation, release, and npm publication", () => {

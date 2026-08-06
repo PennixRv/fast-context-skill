@@ -5,7 +5,7 @@
 Make the fork-owned Skill an independently installable, automatically routable
 and security-bounded npm package. Preserve the current Windsurf/Devstral CLI
 protocol and local filesystem boundary, while publishing a deterministic
-consumer artifact as `@pennixrv/fast-context-skill@0.1.2` from an immutable tag.
+consumer artifact as `@pennixrv/fast-context-skill@0.1.3` from an immutable tag.
 
 ## Confirmed Facts
 
@@ -82,8 +82,8 @@ consumer artifact as `@pennixrv/fast-context-skill@0.1.2` from an immutable tag.
   allowlist and packed-install behavior.
 - Run the existing offline suite, syntax/type/build checks and `npm pack
   --dry-run`; do not call Windsurf or use real credentials.
-- Preserve the rejected immutable `v0.1.1` evidence tag. Publish only the new
-  patch `0.1.2` from a distinct annotated immutable `v0.1.2` tag.
+- Preserve the rejected immutable `v0.1.1` and `v0.1.2` evidence tags. Publish
+  only the new patch `0.1.3` from a distinct annotated immutable `v0.1.3` tag.
   Refuse an existing registry version and never use `@latest` or a branch tip.
 - Bind source commit, direct-child evidence commit, tag, staging manifest,
   provenance, tarball file list and SHA-256 in release evidence. Do not create a
@@ -113,9 +113,9 @@ consumer artifact as `@pennixrv/fast-context-skill@0.1.2` from an immutable tag.
       present.
 - [ ] Staging manifest is deterministic, minimal and script-free while source
       `package.json` retains maintainer scripts.
-- [ ] Unpacked `@pennixrv/fast-context-skill@0.1.2` runs `--help` offline without
+- [ ] Unpacked `@pennixrv/fast-context-skill@0.1.3` runs `--help` offline without
       test/release directories or external API access.
-- [ ] Fixed-tag release checks bind `0.1.2`, tag/evidence ancestry, manifest,
+- [ ] Fixed-tag release checks bind `0.1.3`, tag/evidence ancestry, manifest,
       provenance and tarball SHA-256; registry verification confirms the exact
       published version and digest.
 

@@ -13,6 +13,13 @@ manifest, and tarball digests. Its canonical digest omits only the
 canonical-digest field itself. The exact raw attestation digest is bound in the
 annotated tag message, which avoids a self-referential commit or file hash.
 
+Before source commit `C`, `release:prepare-artifact` writes exactly one
+`docs/releases/artifacts/v<version>.tgz` from the staging builder. `C` includes
+that tarball; preflight rebuilds the consumer tarball from `C` and rejects a
+missing or digest-mismatched tracked artifact before creating evidence commit
+`E`. This is the immutable workflow input downloaded by the CI publisher; a
+runner rebuild is diagnostic only and never replaces it.
+
 Development and offline tests do not read real credentials or call Windsurf.
 Publication runs only in GitHub Actions against the fixed tag. The publish job
 receives a package-scoped `NPM_TOKEN` from the repository Actions secret,

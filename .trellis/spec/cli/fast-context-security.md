@@ -109,6 +109,9 @@ build-package --output <directory>
 
 - `C` is the clean source commit; `E` is its direct child and changes only the
   content-free attestation JSON.
+- Before committing `C`, `release:prepare-artifact` creates exactly one tracked
+  `docs/releases/artifacts/v<version>.tgz`. Preflight rebuilds from `C` and
+  rejects a missing or mismatched artifact before writing the evidence file.
 - The annotated tag peels to `E` and binds `C`, `E`, package/version, source
   provenance, source package manifest, staged consumer manifest, canonical/raw
   attestation, and tarball SHA-256.
@@ -147,6 +150,7 @@ build-package --output <directory>
 | --- | --- |
 | Missing or lightweight tag | Reject before publish |
 | Non-annotated, retargeted, dirty, or unrelated evidence commit | Reject before publish |
+| Source commit lacks `docs/releases/artifacts/v<version>.tgz`, or its digest differs from the staged build | Reject before evidence commit and tag |
 | Tarball filename or digest mismatch | Reject before publish |
 | Staged manifest has scripts/dev dependencies or a file outside the allowlist | Reject package check |
 | Manual publish verifier receives a branch/default ref instead of `inputs.tag` | Reject before publish |
@@ -168,6 +172,8 @@ build-package --output <directory>
 
 - Evidence tests assert direct-child ancestry, a dynamic attestation path, and
   an attestation-only diff.
+- Release-helper tests prove a missing or digest-mismatched tracked artifact is
+  rejected before evidence generation.
 - Release tests assert canonical/raw digest separation, staged-manifest digest,
   strict tag metadata, and explicit workflow tag forwarding.
 - Offline tests assert the exact package allowlist, privacy-safe README

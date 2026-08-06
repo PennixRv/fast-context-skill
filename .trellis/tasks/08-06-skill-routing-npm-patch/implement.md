@@ -23,11 +23,11 @@
 9. Run `trellis-check`, resolve findings, update the relevant spec if a durable
    release/package convention was learned, and review the complete diff.
 10. Commit source changes, build the evidence-only child commit, create the
-    annotated `v0.1.2` tag, and run the tag-bound release verification.
+    annotated `v0.1.3` tag, and run the tag-bound release verification.
 11. Publish only the exact fixed tag through the existing npm workflow with
     provenance; never inspect or print token material and never create a
     GitHub Release.
-12. Poll npm for exact `0.1.2`, download/verify the tarball SHA-256 and file
+12. Poll npm for exact `0.1.3`, download/verify the tarball SHA-256 and file
     contents, then archive the Trellis task and record the session journal.
 
 ## Files And Ownership

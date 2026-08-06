@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -76,6 +76,15 @@ function createAttestation({ sourceCommit, packageJson, artifact }) {
   return validateAttestation(document);
 }
 
+export function verifyAttestedReleaseArtifact({ tag, artifact, projectRoot = PROJECT_ROOT }) {
+  const artifactPath = join(projectRoot, "docs", "releases", "artifacts", `${tag}.tgz`);
+  if (!existsSync(artifactPath)) throw new Error("attested release tarball is missing");
+  if (sha256Bytes(readFileSync(artifactPath)) !== artifact.sha256) {
+    throw new Error("attested release tarball digest mismatch");
+  }
+  return artifactPath;
+}
+
 export function preflightRelease({ projectRoot = PROJECT_ROOT } = {}) {
   if (projectRoot !== PROJECT_ROOT) throw new Error("custom project root is not supported");
   if (git(["status", "--porcelain"])) throw new Error("worktree must be clean before release preflight");
@@ -87,6 +96,7 @@ export function preflightRelease({ projectRoot = PROJECT_ROOT } = {}) {
   runChecked("npm", ["run", "verify:provenance"]);
   runChecked("npm", ["run", "pack:check"]);
   const artifact = buildTarball(sourceCommit, PROJECT_ROOT);
+  verifyAttestedReleaseArtifact({ tag, artifact });
   requireNpmAuth();
   requireExplicit404(`${packageJson.name}@${packageJson.version}`);
   const attestation = createAttestation({ sourceCommit, packageJson, artifact });
