@@ -103,21 +103,36 @@ consumer artifact as `@pennixrv/fast-context-skill@0.1.3` from an immutable tag.
 
 ## Acceptance Criteria
 
-- [ ] Routing metadata/body pass offline assertions for all positive and skip
+- [x] Routing metadata/body pass offline assertions for all positive and skip
       cases, including implicit invocation and candidate verification rules.
-- [ ] Existing CLI security/protocol tests remain green, with new regression
+- [x] Existing CLI security/protocol tests remain green, with new regression
       coverage for traversal, Windows separators, symlink escape, missing key,
       redaction, malformed JSON and output limits.
-- [ ] Final tarball contains a resolvable README provenance link and a valid,
+- [x] Final tarball contains a resolvable README provenance link and a valid,
       privacy-safe projection; no disallowed source/development artifacts are
       present.
-- [ ] Staging manifest is deterministic, minimal and script-free while source
+- [x] Staging manifest is deterministic, minimal and script-free while source
       `package.json` retains maintainer scripts.
-- [ ] Unpacked `@pennixrv/fast-context-skill@0.1.3` runs `--help` offline without
+- [x] Unpacked `@pennixrv/fast-context-skill@0.1.3` runs `--help` offline without
       test/release directories or external API access.
-- [ ] Fixed-tag release checks bind `0.1.3`, tag/evidence ancestry, manifest,
+- [x] Fixed-tag release checks bind `0.1.3`, tag/evidence ancestry, manifest,
       provenance and tarball SHA-256; registry verification confirms the exact
       published version and digest.
+
+## Completion Evidence
+
+- Published package: `@pennixrv/fast-context-skill@0.1.3`.
+- Immutable source commit: `8f171b0e4de9272f0f05ee23860bc6fbff9f955e`.
+- Direct-child evidence commit: `3c8199de373d76986d8cea0d271e78ee832ad3b9`.
+- Annotated immutable tag: `v0.1.3` points to the evidence commit.
+- Attested and registry-downloaded tarball SHA-256:
+  `7801ba30578754252b2407f1c5b1d7f139448d416ea642b7887a440b36c08086`.
+- Registry verification confirmed the exact version, 15-file allowlist,
+  resolvable public provenance, lifecycle-disabled install, CLI `--help`, and
+  an npm registry signature plus attestation.
+- Offline final checks: `npm test` (24 passing), `npm run verify:provenance`,
+  `npm run pack:check`, `npm pack --dry-run --json --ignore-scripts`, and
+  `git diff --check`.
 
 ## Open Questions
 

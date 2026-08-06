@@ -57,3 +57,19 @@ Record final source/evidence commit IDs, tag target, package name/version,
 staging manifest digest, sorted tarball file list, tarball SHA-256, registry
 version verification and any commands not run with reasons. No real API key or
 raw credential may appear in artifacts, logs or the final report.
+
+## Completion Record
+
+The task published `@pennixrv/fast-context-skill@0.1.3` from source commit
+`8f171b0e4de9272f0f05ee23860bc6fbff9f955e` and direct-child evidence commit
+`3c8199de373d76986d8cea0d271e78ee832ad3b9`, bound by annotated tag `v0.1.3`.
+The public registry tarball SHA-256 is
+`7801ba30578754252b2407f1c5b1d7f139448d416ea642b7887a440b36c08086`, matching
+the tag attestation. The final consumer manifest digest is
+`bb07028ebc7915c50cbb82a8ef61db3e90e0ccfd898d7cd264774edf4a6a11c7` and the
+allowlist contains 15 runtime, Skill, license, and public-provenance files.
+
+The follow-up workflow hardening treats delayed registry metadata as a
+read-only verification state: it downloads the exact public tarball and checks
+the attested SHA-256 before installation and `npm audit signatures`; it never
+retries publication of the same immutable version.

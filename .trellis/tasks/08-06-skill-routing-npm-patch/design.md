@@ -92,8 +92,10 @@ The fixed-tag GitHub Actions job verifies a package-scoped repository
 `NPM_TOKEN` without echoing it and publishes the attested tarball with explicit
 `--provenance` from the public GitHub-hosted runner. Registry attestation
 verification after publication is the final proof that provenance was
-established. An auth, provenance, tag, clean-tree, or registry failure stops
-the workflow without a second publish attempt, a tag move, or a repack.
+established. Version metadata may lag after an accepted PUT; the workflow then
+downloads the exact public tarball and compares its SHA-256 before attestation
+verification, without a second publish attempt. An auth, provenance, tag,
+clean-tree, or registry failure stops the workflow without a tag move or repack.
 
 ## CI And Rollback
 

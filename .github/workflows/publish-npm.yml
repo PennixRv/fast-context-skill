@@ -161,25 +161,25 @@ jobs:
         run: |
           TARBALL_PATH="$GITHUB_WORKSPACE/verified-tarball/$PACKAGE_NAME"
           npm publish "$TARBALL_PATH" --provenance --access public --ignore-scripts
-      - name: Poll registry for exact published version
+      - name: Verify published registry tarball and attestations
         shell: bash
+        env:
+          EXPECTED_TARBALL_SHA256: ${{ needs.validate.outputs.tarball_sha256 }}
         run: |
           PACKAGE="$(node -p "require('./package.json').name")"
           VERSION="$(node -p "require('./package.json').version")"
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
             if [ "$(npm view "$PACKAGE@$VERSION" version --json --prefer-online 2>/dev/null | tr -d '\"')" = "$VERSION" ]; then
-              exit 0
+              break
             fi
             sleep 10
           done
-          echo "published version did not become visible"
-          exit 1
-      - name: Verify npm registry signatures and attestations
-        shell: bash
-        run: |
-          PACKAGE="$(node -p "require('./package.json').name")"
-          VERSION="$(node -p "require('./package.json').version")"
           VERIFY_DIR="$(mktemp -d)"
+          PACKAGE_LEAF="${PACKAGE##*/}"
+          curl --fail --retry 12 --retry-delay 5 --location \
+            "https://registry.npmjs.org/$PACKAGE/-/$PACKAGE_LEAF-$VERSION.tgz" \
+            --output "$VERIFY_DIR/registry.tgz"
+          test "$(sha256sum "$VERIFY_DIR/registry.tgz" | awk '{print $1}')" = "$EXPECTED_TARBALL_SHA256"
           npm init --yes --prefix "$VERIFY_DIR" >/dev/null
           npm install --ignore-scripts --no-audit --no-fund --prefix "$VERIFY_DIR" "$PACKAGE@$VERSION"
           npm audit signatures --prefix "$VERIFY_DIR"

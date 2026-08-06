@@ -37,6 +37,11 @@ Publication still requires operator authorization, npm scope ownership, tag
 protection, registry availability, and post-publish signature/attestation
 verification. The workflow never creates a GitHub Release.
 
+A successful `npm publish` is never retried because a short metadata poll still
+returns 404. The publisher may wait for version metadata, then downloads the
+exact versioned public tarball and compares its SHA-256 with the tag-bound
+digest before verifying registry signatures and attestations.
+
 Before creating the source commit `C`, verify that
 `package.json.repository.url` identifies the canonical public GitHub
 owner/repository, including the owner and repository casing. npm requires this

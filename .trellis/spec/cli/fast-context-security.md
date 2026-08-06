@@ -139,7 +139,9 @@ build-package --output <directory>
   whose SHA-256 is already bound by the tag attestation; an independent
   cross-runner rebuild remains diagnostic evidence and cannot replace it.
 - After publish, the local publisher and CI workflow poll the exact package
-  version for a bounded interval before reporting success.
+  version for a bounded interval. Metadata lag then falls through to a download
+  of the exact versioned registry tarball, whose SHA-256 must equal the
+  tag-bound digest before signature and attestation verification.
 - npm publication uses GitHub Actions on the public repository. The publish
   job takes a package-scoped `NPM_TOKEN` only from a repository Actions secret,
   validates it with non-echoing `npm whoami`, retains `id-token: write`, and
@@ -185,6 +187,8 @@ build-package --output <directory>
   `--help`.
 - Operator verification records `npm dist-tag ls`, public tarball HTTP status,
   and downloaded tarball SHA-256 after publication.
+- Workflow tests assert that a metadata timeout does not republish and that the
+  public tarball SHA-256 is checked before registry attestation verification.
 
 ### 7. Wrong Vs Correct
 

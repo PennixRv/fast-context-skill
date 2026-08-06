@@ -127,8 +127,11 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(publish, /E404\|404 Not Found/);
   assert.match(tag, /verify-release-evidence\.mjs/);
   assert.match(publish, /verify-release-evidence\.mjs/);
-  assert.match(publish, /Poll registry for exact published version/);
+  assert.match(publish, /Verify published registry tarball and attestations/);
   assert.match(publish, /sleep 10/);
+  assert.match(publish, /curl --fail --retry 12 --retry-delay 5 --location/);
+  assert.match(publish, /EXPECTED_TARBALL_SHA256/);
+  assert.match(publish, /sha256sum "\$VERIFY_DIR\/registry\.tgz"/);
 });
 
 test("attestation binds the staged manifest with a canonical digest and no raw self-hash", () => {
