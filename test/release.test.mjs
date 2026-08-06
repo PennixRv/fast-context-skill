@@ -48,6 +48,8 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(publish, /E404\|404 Not Found/);
   assert.match(tag, /verify-release-evidence\.mjs/);
   assert.match(publish, /verify-release-evidence\.mjs/);
+  assert.match(publish, /Poll registry for exact published version/);
+  assert.match(publish, /sleep 10/);
 });
 
 test("attestation uses a canonical digest without a raw self-hash", () => {

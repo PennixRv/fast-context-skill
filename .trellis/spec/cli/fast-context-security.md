@@ -112,6 +112,8 @@ release:publish -- --tag v<major>.<minor>.<patch> --tarball <exact-path>
   provenance, package manifest, canonical/raw attestation, and tarball SHA-256.
 - The publisher accepts one exact lifecycle-disabled tarball and rechecks its
   digest immediately before `npm publish`.
+- After publish, the local publisher and CI workflow poll the exact package
+  version for a bounded interval before reporting success.
 - npm credentials remain in the active client only; no token bytes enter logs,
   source, package contents, tag messages, or Trellis artifacts.
 

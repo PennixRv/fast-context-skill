@@ -26,6 +26,28 @@ function runNpm(args) {
   });
 }
 
+function waitForPublishedVersion(packageCoordinate, version, { attempts = 6, delaySeconds = 10 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const result = runNpm([
+      "view",
+      `${packageCoordinate}@${version}`,
+      "version",
+      "--json",
+      "--prefer-online",
+      "--registry=https://registry.npmjs.org",
+    ]);
+    let observedVersion = null;
+    try {
+      observedVersion = result.status === 0 ? JSON.parse(result.stdout) : null;
+    } catch {
+      observedVersion = null;
+    }
+    if (observedVersion === version) return true;
+    if (attempt + 1 < attempts) execFileSync("sleep", [String(delaySeconds)], { stdio: "ignore" });
+  }
+  throw new Error("published version did not become visible");
+}
+
 function requireNpmAuth() {
   const result = runNpm(["whoami", "--registry=https://registry.npmjs.org"]);
   if (result.status !== 0 || !result.stdout.trim()) throw new Error("npm authentication unavailable");
@@ -67,6 +89,7 @@ export function publishRelease({ tag, tarballPath }) {
   if (git(["status", "--porcelain"])) throw new Error("worktree changed before publish");
   const result = runNpm(["publish", tarballPath, "--access", "public", "--ignore-scripts"]);
   if (result.status !== 0) throw new Error("npm publish failed");
+  waitForPublishedVersion(evidence.package, evidence.package.split("@").pop());
   return evidence;
 }
 
@@ -81,4 +104,4 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   }
 }
 
-export { parseArguments, requireExplicit404, requireNpmAuth };
+export { parseArguments, requireExplicit404, requireNpmAuth, waitForPublishedVersion };
