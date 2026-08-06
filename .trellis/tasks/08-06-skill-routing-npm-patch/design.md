@@ -73,6 +73,25 @@ release sequence is:
 If any credential, provenance, tag, clean-tree or registry gate fails, stop
 without fallback publication or post-publish mutation.
 
+### Publication Checkpoint: 0.1.1
+
+The immutable `v0.1.1` tag binds a source manifest whose
+`repository.url` uses `pennixrv/fast-context-skill`, while the canonical public
+GitHub identity and `origin` use `PennixRv/fast-context-skill`. npm's Trusted
+Publisher documentation requires the package repository URL to exactly match
+the GitHub repository, and npm did not recognize the configured publisher in
+the prior release attempt: the exact-tarball publish returned `E404` without
+the expected OIDC provenance message. This is a release gate, not a reason to
+inspect tokens or fall back to static-token publication.
+
+Do not retry or mutate `v0.1.1` until the canonical GitHub identity and package
+metadata can satisfy that prerequisite. If the canonical GitHub identity can be
+changed to the lower-case package identity without changing the fixed release
+artifact, reconfigure the Trusted Publisher to that exact identity and rerun
+the fixed-tag workflow once. Otherwise, correcting package metadata requires
+an explicitly authorized new patch release with a new `C -> E -> tag` evidence
+chain; moving or repacking `v0.1.1` is prohibited.
+
 ## CI And Rollback
 
 Pull requests run offline tests, syntax/type/build checks, package-content

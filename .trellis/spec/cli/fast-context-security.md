@@ -122,6 +122,10 @@ build-package --output <directory>
 - A manual publish workflow must pass its dispatch `inputs.tag` directly to
   tag/evidence verifiers. `GITHUB_REF_NAME` is not authoritative after a
   `workflow_dispatch` checkout of a different ref.
+- Before creating source commit `C`, `package.json.repository.url` must
+  identify the canonical public GitHub owner/repository, including casing.
+  npm Trusted Publishing requires this match; an immutable tag cannot be
+  repaired by rewriting package metadata or repacking its attested tarball.
 - The publisher accepts one exact lifecycle-disabled tarball and rechecks its
   digest immediately before `npm publish`.
 - npm pack can preserve identical tar bytes while emitting a different gzip
@@ -146,6 +150,7 @@ build-package --output <directory>
 | Tarball filename or digest mismatch | Reject before publish |
 | Staged manifest has scripts/dev dependencies or a file outside the allowlist | Reject package check |
 | Manual publish verifier receives a branch/default ref instead of `inputs.tag` | Reject before publish |
+| Manifest repository owner/repository differs from the canonical public GitHub identity | Reject before tagging; use a newly authorized patch after correcting metadata |
 | Existing target version, auth failure, or non-404 registry response before publish | Reject before publish |
 | Published version metadata temporarily returns 404 | Do not republish; confirm dist-tags, public tarball HTTP 200, and immutable-version conflict evidence |
 

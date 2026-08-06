@@ -22,3 +22,13 @@ repository. Publication still requires operator authorization, an exact npm
 Trusted Publisher configuration for `publish-npm.yml`, npm scope ownership, tag
 protection, registry availability, and post-publish signature/attestation
 verification. The workflow never creates a GitHub Release.
+
+Before creating the source commit `C`, verify that
+`package.json.repository.url` identifies the canonical public GitHub
+owner/repository, including the owner and repository casing. npm requires this
+match for GitHub Trusted Publishing; case-insensitive GitHub redirects are not
+a release gate. A mismatch rejects publication before tagging. Once an
+annotated tag has bound the consumer manifest and tarball, do not change that
+manifest, rebuild the tarball, or move the tag to repair the URL. Correct the
+metadata in a later source release and create a new, independently attested
+patch only after explicit release authorization.
