@@ -57,4 +57,4 @@ for delegated work and must not retain a Codex-native subagent dispatch path.
 - [x] Classify durable assets and retain runtime/local identity exclusions.
 - [x] Remove native Codex subagent dispatch and synchronize project routing.
 - [x] Run bootstrap validation.
-- [ ] Create the local bootstrap commit.
+- [x] Create the local bootstrap commit (`cfbe51e`).
