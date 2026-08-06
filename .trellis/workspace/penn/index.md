@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
+- **Total Sessions**: 2
 - **Last Active**: 2026-08-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~40 | Active |
+| `journal-1.md` | ~61 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-08-06 | Harden Fast Context search and release gates | `33303b0` | `main` |
 | 1 | 2026-08-06 | Bootstrap Trellis asset ownership | `cfbe51e7614880e57d62cc9046b4bf250278a612` | `main` |
 <!-- @@@/auto:session-history -->
 

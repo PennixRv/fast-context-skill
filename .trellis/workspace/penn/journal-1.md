@@ -38,3 +38,24 @@ Tracked durable Trellis assets, removed Codex-native delegation surfaces, and cr
 ### Next Steps
 
 - Create the Fast Context security and release design task; complete brainstorm, threat-model review, and final plan approval before implementation.
+
+
+## Session 2: Harden Fast Context search and release gates
+
+**Date**: 2026-08-06
+**Task**: Harden Fast Context search and release gates
+**Branch**: `main`
+
+### Summary
+
+Implemented canonical path confinement, explicit credential and redaction boundaries, offline tests, provenance/package checks, tag-gated release workflows, and the durable CLI security spec.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `33303b0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
