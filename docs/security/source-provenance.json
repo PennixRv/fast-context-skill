@@ -62,7 +62,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Fork repository identity and exact individual-file allowlist.",
-      "shipped_sha256": "5daa47dc6c44ad8c9fad8738072e9218711c9561b2ac9ab793399ae02baedb5f"
+      "shipped_sha256": "cb410df47732f9187decc289c1bf7f727ab2310ffae557fe8b454b025dd906a6"
     },
     {
       "path": "references/script-contract.md",

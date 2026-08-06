@@ -26,7 +26,11 @@
     "search": "node scripts/fast-context-search.mjs",
     "test": "node --test test/*.test.mjs",
     "verify:provenance": "node scripts/release/verify-provenance.mjs",
-    "pack:check": "node test/package-content.test.mjs"
+    "pack:check": "node test/package-content.test.mjs",
+    "release:preflight": "node scripts/release/preflight-release.mjs",
+    "release:verify-evidence": "node scripts/release/verify-release-evidence.mjs",
+    "release:publish": "node scripts/release/publish-release.mjs",
+    "release:tag-message": "node scripts/release/tag-message.mjs"
   },
   "repository": {
     "type": "git",
