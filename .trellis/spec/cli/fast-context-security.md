@@ -116,9 +116,9 @@ build-package --output <directory>
   staging directory and generates a minimal consumer `package.json`. The source
   manifest retains maintainer scripts; the staged manifest has no `scripts` or
   `devDependencies`.
-- Every environment that rebuilds an attested tarball pins the pack tool to
-  `npm@12.0.1`; npm pack output is not assumed byte-identical across npm major
-  versions.
+- Every environment that rebuilds an attested tarball pins Node to `26.5.1` and
+  the pack tool to `npm@12.0.1`; npm pack output is not assumed byte-identical
+  across Node or npm versions.
 - A manual publish workflow must pass its dispatch `inputs.tag` directly to
   tag/evidence verifiers. `GITHUB_REF_NAME` is not authoritative after a
   `workflow_dispatch` checkout of a different ref.
