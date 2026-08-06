@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "package": {
+    "name": "@pennixrv/fast-context-skill",
+    "version": "0.1.3"
+  },
+  "source": {
+    "commit": "8f171b0e4de9272f0f05ee23860bc6fbff9f955e"
+  },
+  "artifacts": {
+    "provenance_sha256": "33e3c0df267bb7a6436fac0996888b5d4e19de20e3a328a8c75e35efa0cb6d75",
+    "package_manifest_sha256": "9dd849ab717c8c0f70bea02b789a317343ac59cdcdc68e7a432a4ea35bb5bc68",
+    "consumer_manifest_sha256": "bb07028ebc7915c50cbb82a8ef61db3e90e0ccfd898d7cd264774edf4a6a11c7",
+    "tarball_filename": "pennixrv-fast-context-skill-0.1.3.tgz",
+    "tarball_sha256": "7801ba30578754252b2407f1c5b1d7f139448d416ea642b7887a440b36c08086"
+  },
+  "canonical_attestation_sha256": "47f1181973b846139c31c7b405bf90e5567e438175ece417d624f6a70e3189ce"
+}
