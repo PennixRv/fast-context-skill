@@ -16,7 +16,7 @@ test("staged tarball installs offline and the runtime CLI does not need maintain
       stdio: ["ignore", "pipe", "pipe"],
     });
     const packageRoot = join(installDirectory, "node_modules", "@pennixrv", "fast-context-skill");
-    const help = execFileSync("node", [join(packageRoot, "scripts", "fast-context-search.mjs"), "--help"], {
+    const help = execFileSync(process.execPath, [join(packageRoot, "scripts", "fast-context-search.mjs"), "--help"], {
       encoding: "utf8",
       env: {},
       stdio: ["ignore", "pipe", "pipe"],
