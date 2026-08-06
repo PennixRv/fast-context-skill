@@ -24,6 +24,19 @@ jobs:
           node-version: "26.5.1"
       - run: npm install --global npm@12.0.1
       - run: npm ci --ignore-scripts
+      - name: Report deterministic release digest
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          import { buildTarball } from "./scripts/release/verify-release-evidence.mjs";
+          const tag = process.env.RELEASE_TAG;
+          const expected = JSON.parse(execFileSync("git", ["show", `${tag}:docs/releases/attestations/${tag}.json`], { encoding: "utf8" })).artifacts.tarball_sha256;
+          const source = execFileSync("git", ["rev-parse", `${tag}^{}^`], { encoding: "utf8" }).trim();
+          const actual = buildTarball(source).sha256;
+          console.log(JSON.stringify({ expected, actual, match: expected === actual }));
+          NODE
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
       - run: |
           node --input-type=module -e 'import("./scripts/release/verify-tag.mjs").then(({ verifyTag }) => verifyTag({ tag: process.env.RELEASE_TAG }))'
         env:
