@@ -82,3 +82,24 @@ Implemented C/E tag-bound release evidence, published @pennixrv/fast-context-ski
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Harden post-publish registry verification
+
+**Date**: 2026-08-06
+**Task**: Harden post-publish registry verification
+**Branch**: `main`
+
+### Summary
+
+Added bounded exact-version polling to the local and GitHub npm publishers after observing registry metadata propagation lag; verified dist-tags, public access, immutable-version conflict, and public tarball SHA-256 without republishing.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38cfb1b` | (see git log) |
+
+### Status
+
+[OK] **Completed**
