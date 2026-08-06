@@ -49,6 +49,9 @@ test("workflow permissions isolate validation, release, and npm publication", ()
   assert.match(tag, /npm pack --dry-run --json --ignore-scripts/);
   assert.match(ci, /build-package\.mjs --output/);
   assert.match(publish, /build-package\.mjs --output/);
+  assert.match(ci, /npm install --global npm@12\.0\.1/);
+  assert.match(tag, /npm install --global npm@12\.0\.1/);
+  assert.match(publish, /npm install --global npm@12\.0\.1/);
   assert.match(publish, /verify-tag\.mjs "\$\{\{ inputs\.tag \}\}"/);
   assert.match(publish, /verify-release-evidence\.mjs "\$\{\{ inputs\.tag \}\}"/);
   assert.match(publish, /actions\/upload-artifact@v4/);
