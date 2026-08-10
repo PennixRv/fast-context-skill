@@ -6,16 +6,16 @@
 - [x] 创建 `fix/fast-context-reliability`，运行 `trellis update --create-new`。
 - [x] 比较 10 个 `*.new`，拒绝纯空白与所有会弱化项目定制的上游 sidecar，清除 sidecar并保留安全备份。
 - [x] 创建 planning 任务，读取根 Issue/审计证据和官方协议资料，写完整规划工件。
-- [ ] 验证任务、Python/Hook、JSON/TOML、inline 输出、dry-run 和 `git diff --check`。
-- [ ] 按路径确认准备提交不含产品文件，以固定提交信息提交并记录 PREP_COMMIT。
+- [x] 验证任务、Python/Hook、JSON/TOML、inline 输出、dry-run 和 `git diff --check`。
+- [x] 按路径确认准备提交不含产品文件，以固定提交信息提交并记录 PREP_COMMIT。
 
 ## 1. Issue 047/048：响应限制与 Connect decoder
 
-- [ ] 在 `core.mjs` 增加流式、有压缩字节硬上限且可取消的响应读取。
-- [ ] 在 `protobuf.mjs` 实现严格 envelope 状态机、gzip 协商、单帧/累计解压硬上限与唯一最终 EndStream。
-- [ ] 用离线 `ReadableStream` 夹具覆盖单帧、多帧、gzip bomb、Content-Length 缺失/错误、慢速流与中途取消。
-- [ ] 覆盖残头、长短长度、残片、未知 flags、gzip/协商错误和 EndStream 全部失败边界。
-- [ ] 组合运行 core 与协议测试并执行修改 `.mjs` 的 `node --check`。
+- [x] 在 `core.mjs` 增加流式、有压缩字节硬上限且可取消的响应读取。
+- [x] 在 `protobuf.mjs` 实现严格 envelope 状态机、gzip 协商、单帧/累计解压硬上限与唯一最终 EndStream。
+- [x] 用离线 `ReadableStream` 夹具覆盖单帧、多帧、gzip bomb、Content-Length 缺失/错误、慢速流与中途取消。
+- [x] 覆盖残头、长短长度、残片、未知 flags、gzip/协商错误和 EndStream 全部失败边界。
+- [x] 组合运行 core 与协议测试并执行修改 `.mjs` 的 `node --check`。
 - [ ] 以明确负责 047/048 的产品提交落盘。
 
 ## 2. Issue 045/046：有界搜索与共享预算
@@ -59,4 +59,3 @@
 - `scripts/lib/executor.mjs`：固定命令语法、子进程终止和输出硬上限。
 - `scripts/fast-context-search.mjs`：公开 CLI JSON 与调用方 AbortSignal 契约。
 - `README.md`、`references/script-contract.md` 与 `.trellis/spec/cli/fast-context-security.md`：声明必须与实现一致。
-

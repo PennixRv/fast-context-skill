@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { arch, platform } from "node:os";
 import {
+  CONNECT_LIMITS,
   ProtobufEncoder,
   connectFrameDecode,
   connectFrameEncode,
@@ -16,7 +17,7 @@ const APP_VERSION = "1.48.2";
 const LANGUAGE_SERVER_VERSION = "1.9544.35";
 const MAX_COMMANDS = 4;
 const MAX_REQUEST_BYTES = 128 * 1024;
-const MAX_RESPONSE_BYTES = 512 * 1024;
+const MAX_RESPONSE_BYTES = CONNECT_LIMITS.MAX_RESPONSE_COMPRESSED_BYTES;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 const MAX_TURNS = 3;
 
@@ -26,6 +27,10 @@ function networkError() {
 
 function protocolError() {
   return new FastContextError("FC_PROTOCOL_INVALID");
+}
+
+function outputLimitError() {
+  return new FastContextError("FC_OUTPUT_LIMIT");
 }
 
 function requireApiKey(apiKey) {
@@ -90,32 +95,120 @@ function buildRequest(apiKey, jwt, messages, toolDefinitions) {
   return request.toBuffer();
 }
 
-async function postBinary(fetchImpl, url, body, headers, timeoutMs) {
+function requestSignal(timeoutMs, signal) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw networkError();
+  if (signal !== undefined && !(signal instanceof AbortSignal)) throw protocolError();
+  const timeoutSignal = AbortSignal.timeout(Math.max(1, Math.floor(timeoutMs)));
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+}
+
+function getHeader(headers, name) {
+  if (typeof headers?.get === "function") return headers.get(name);
+  if (!headers || typeof headers !== "object") return null;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted && typeof value === "string") return value;
+  }
+  return null;
+}
+
+function validateDeclaredLength(headers, byteLimit) {
+  const value = getHeader(headers, "content-length");
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return;
+  try {
+    if (BigInt(value.trim()) > BigInt(byteLimit)) throw outputLimitError();
+  } catch (error) {
+    if (error instanceof FastContextError) throw error;
+  }
+}
+
+async function readChunk(reader, signal) {
+  if (signal.aborted) throw networkError();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback(value);
+    };
+    const onAbort = () => finish(reject, networkError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    reader.read().then(
+      (value) => finish(resolve, value),
+      () => finish(reject, networkError()),
+    );
+  });
+}
+
+async function cancelReader(reader) {
+  try {
+    await reader.cancel();
+  } catch {
+    // Cancellation is best-effort; callers still receive a fixed error.
+  }
+}
+
+async function readBoundedBody(response, byteLimit, signal) {
+  const reader = response?.body?.getReader?.();
+  if (!reader) throw networkError();
+  const chunks = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await readChunk(reader, signal);
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw protocolError();
+      if (value.byteLength === 0) continue;
+      if (totalBytes > byteLimit - value.byteLength) {
+        await cancelReader(reader);
+        throw outputLimitError();
+      }
+      totalBytes += value.byteLength;
+      chunks.push(Buffer.isBuffer(value)
+        ? value
+        : Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+    }
+  } catch (error) {
+    await cancelReader(reader);
+    if (error instanceof FastContextError) throw error;
+    throw networkError();
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // The stream may already be cancelled or errored.
+    }
+  }
+
+  if (chunks.length === 0) return Buffer.alloc(0);
+  if (chunks.length === 1) return chunks[0];
+  return Buffer.concat(chunks, totalBytes);
+}
+
+async function postBinary(fetchImpl, url, body, headers, timeoutMs, externalSignal) {
   if (typeof fetchImpl !== "function") throw networkError();
+  const signal = requestSignal(timeoutMs, externalSignal);
   let response;
   try {
     response = await fetchImpl(url, {
       method: "POST",
       headers,
       body,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     });
   } catch {
     throw networkError();
   }
   if (!response?.ok) throw networkError();
 
-  let data;
-  try {
-    data = Buffer.from(await response.arrayBuffer());
-  } catch {
-    throw networkError();
-  }
-  if (data.length > MAX_RESPONSE_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
-  return data;
+  validateDeclaredLength(response.headers, MAX_RESPONSE_BYTES);
+  const data = await readBoundedBody(response, MAX_RESPONSE_BYTES, signal);
+  return { data, headers: response.headers };
 }
 
-async function fetchJwt(apiKey, fetchImpl, timeoutMs) {
+async function fetchJwt(apiKey, fetchImpl, timeoutMs, signal) {
   const metadata = new ProtobufEncoder();
   metadata.writeString(1, APP_NAME);
   metadata.writeString(2, APP_VERSION);
@@ -127,7 +220,7 @@ async function fetchJwt(apiKey, fetchImpl, timeoutMs) {
 
   const outer = new ProtobufEncoder();
   outer.writeMessage(1, metadata);
-  const response = await postBinary(
+  const { data: response } = await postBinary(
     fetchImpl,
     `${AUTH_BASE}/GetUserJwt`,
     outer.toBuffer(),
@@ -137,13 +230,14 @@ async function fetchJwt(apiKey, fetchImpl, timeoutMs) {
       "User-Agent": "connect-go/1.18.1",
     },
     timeoutMs,
+    signal,
   );
   const jwt = extractStrings(response).find((value) => value.startsWith("eyJ") && value.includes("."));
   if (!jwt) throw networkError();
   return jwt;
 }
 
-async function streamingRequest(protoBytes, fetchImpl, timeoutMs) {
+async function streamingRequest(protoBytes, fetchImpl, timeoutMs, signal) {
   const frame = connectFrameEncode(protoBytes);
   const response = await postBinary(
     fetchImpl,
@@ -159,8 +253,12 @@ async function streamingRequest(protoBytes, fetchImpl, timeoutMs) {
       "X-Request-Id": randomUUID(),
     },
     timeoutMs,
+    signal,
   );
-  return response;
+  return {
+    data: response.data,
+    encoding: getHeader(response.headers, "connect-content-encoding") || "identity",
+  };
 }
 
 function commandSchema(index) {
@@ -294,11 +392,12 @@ function parseToolCall(text) {
   return { name, args };
 }
 
-function parseResponse(buffer) {
+function parseResponse(response) {
   let frames;
   try {
-    frames = connectFrameDecode(buffer);
-  } catch {
+    frames = connectFrameDecode(response.data, { encoding: response.encoding });
+  } catch (error) {
+    if (error instanceof FastContextError) throw error;
     throw protocolError();
   }
   let text = "";
@@ -367,6 +466,7 @@ function parseAnswer(answer, guard, maxResults, query) {
  *   maxResults?: number,
  *   timeoutMs?: number,
  *   fetchImpl?: typeof fetch,
+ *   signal?: AbortSignal,
  * }} options
  */
 export async function search({
@@ -376,6 +476,7 @@ export async function search({
   maxResults = 10,
   timeoutMs = 30000,
   fetchImpl = globalThis.fetch,
+  signal,
 }) {
   if (typeof query !== "string" || query.trim().length === 0) {
     throw new FastContextError("FC_QUERY_REQUIRED");
@@ -384,7 +485,7 @@ export async function search({
   if (!guard || typeof guard.buildRepoMap !== "function") throw protocolError();
 
   const boundedResults = Math.max(1, Math.min(50, Number(maxResults) || 10));
-  const jwt = await fetchJwt(apiKey, fetchImpl, timeoutMs);
+  const jwt = await fetchJwt(apiKey, fetchImpl, timeoutMs, signal);
   const executor = new ToolExecutor(guard);
   const messages = [
     { role: 5, content: systemPrompt() },
@@ -398,7 +499,7 @@ export async function search({
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
     const request = buildRequest(apiKey, jwt, messages, definitions);
     if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
-    const response = await streamingRequest(request, fetchImpl, timeoutMs);
+    const response = await streamingRequest(request, fetchImpl, timeoutMs, signal);
     const toolCall = parseResponse(response);
 
     if (toolCall.name === "answer") {
@@ -428,10 +529,11 @@ export async function searchWithContent({
   maxResults = 10,
   denyPatterns = [],
   fetchImpl = globalThis.fetch,
+  signal,
 }) {
   const { PathGuard } = await import("./path-guard.mjs");
   const guard = new PathGuard(projectRoot, denyPatterns);
-  const result = await search({ query, guard, apiKey, maxResults, fetchImpl });
+  const result = await search({ query, guard, apiKey, maxResults, fetchImpl, signal });
   return JSON.stringify(result);
 }
 

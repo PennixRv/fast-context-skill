@@ -8,6 +8,29 @@
  */
 
 import { gzipSync, gunzipSync } from "node:zlib";
+import { FastContextError } from "./public-error.mjs";
+
+export const CONNECT_LIMITS = Object.freeze({
+  MAX_RESPONSE_COMPRESSED_BYTES: 512 * 1024,
+  MAX_FRAME_COMPRESSED_BYTES: 256 * 1024,
+  MAX_FRAME_DECOMPRESSED_BYTES: 512 * 1024,
+  MAX_RESPONSE_DECOMPRESSED_BYTES: 1024 * 1024,
+});
+
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function protocolError() {
+  return new FastContextError("FC_PROTOCOL_INVALID");
+}
+
+function outputLimitError() {
+  return new FastContextError("FC_OUTPUT_LIMIT");
+}
+
+function positiveLimit(value) {
+  if (!Number.isSafeInteger(value) || value < 1) throw protocolError();
+  return value;
+}
 
 // ─── Protobuf Encoder ──────────────────────────────────────
 
@@ -208,28 +231,94 @@ export function connectFrameEncode(protoBytes, compress = true) {
 }
 
 /**
- * Decode Connect-RPC frames from raw response data.
- * Handles gzip-compressed frames (flags 1 or 3).
- * @param {Buffer} data
+ * Decode a complete Connect streaming response.
+ * @param {Buffer|Uint8Array} data
+ * @param {{
+ *   encoding?: "identity"|"gzip"|string,
+ *   maxFrameCompressedBytes?: number,
+ *   maxFrameDecompressedBytes?: number,
+ *   maxResponseDecompressedBytes?: number,
+ * }} [options]
  * @returns {Buffer[]}
  */
-export function connectFrameDecode(data) {
+export function connectFrameDecode(data, options = {}) {
+  if (!(data instanceof Uint8Array)) throw protocolError();
+  const buffer = Buffer.isBuffer(data)
+    ? data
+    : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  const encoding = String(options.encoding || "identity").trim().toLowerCase();
+  if (encoding !== "identity" && encoding !== "gzip") throw protocolError();
+
+  const maxFrameCompressedBytes = positiveLimit(
+    options.maxFrameCompressedBytes ?? CONNECT_LIMITS.MAX_FRAME_COMPRESSED_BYTES,
+  );
+  const maxFrameDecompressedBytes = positiveLimit(
+    options.maxFrameDecompressedBytes ?? CONNECT_LIMITS.MAX_FRAME_DECOMPRESSED_BYTES,
+  );
+  const maxResponseDecompressedBytes = positiveLimit(
+    options.maxResponseDecompressedBytes ?? CONNECT_LIMITS.MAX_RESPONSE_DECOMPRESSED_BYTES,
+  );
+
   const frames = [];
-  let i = 0;
-  while (i + 5 <= data.length) {
-    const flags = data[i];
-    const length = data.readUInt32BE(i + 1);
-    i += 5;
-    let payload = data.subarray(i, i + length);
-    i += length;
-    if (flags === 1 || flags === 3) {
+  let offset = 0;
+  let totalDecompressedBytes = 0;
+  let sawEndStream = false;
+
+  while (offset < buffer.length) {
+    if (buffer.length - offset < 5) throw protocolError();
+    const flags = buffer[offset];
+    if ((flags & ~0x03) !== 0) throw protocolError();
+
+    const length = buffer.readUInt32BE(offset + 1);
+    if (length > maxFrameCompressedBytes) throw outputLimitError();
+    const payloadStart = offset + 5;
+    const payloadEnd = payloadStart + length;
+    if (!Number.isSafeInteger(payloadEnd) || payloadEnd > buffer.length) throw protocolError();
+
+    const compressed = (flags & 0x01) !== 0;
+    const endStream = (flags & 0x02) !== 0;
+    let payload = buffer.subarray(payloadStart, payloadEnd);
+    if (compressed) {
+      if (encoding !== "gzip") throw protocolError();
       try {
-        payload = gunzipSync(payload);
-      } catch {
-        // Decompression failed — use raw payload
+        payload = gunzipSync(payload, { maxOutputLength: maxFrameDecompressedBytes });
+      } catch (error) {
+        if (error?.code === "ERR_BUFFER_TOO_LARGE") throw outputLimitError();
+        throw protocolError();
       }
+    } else if (payload.length > maxFrameDecompressedBytes) {
+      throw outputLimitError();
     }
-    frames.push(Buffer.from(payload));
+
+    if (totalDecompressedBytes > maxResponseDecompressedBytes - payload.length) {
+      throw outputLimitError();
+    }
+    totalDecompressedBytes += payload.length;
+    offset = payloadEnd;
+
+    if (endStream) {
+      if (sawEndStream || offset !== buffer.length) throw protocolError();
+      let end;
+      try {
+        end = JSON.parse(utf8Decoder.decode(payload));
+      } catch {
+        throw protocolError();
+      }
+      if (!end || typeof end !== "object" || Array.isArray(end)) throw protocolError();
+      if (Object.hasOwn(end, "error")) throw protocolError();
+      if (
+        Object.hasOwn(end, "metadata")
+        && (!end.metadata || typeof end.metadata !== "object" || Array.isArray(end.metadata))
+      ) {
+        throw protocolError();
+      }
+      sawEndStream = true;
+      continue;
+    }
+
+    frames.push(payload);
   }
+
+  if (!sawEndStream) throw protocolError();
   return frames;
 }

@@ -33,7 +33,7 @@
 decoder 输入为有界 `Uint8Array`/`Buffer` 与 negotiated encoding，输出仅包含普通消息帧：
 
 - 每轮先要求剩余字节至少 5 B；读取 unsigned flags 与 4 B big-endian unsigned length。
-- 只允许普通 frame flags `0x00`/`0x01` 与 EndStream flags `0x02`；EndStream 不允许压缩，保留位或组合位均拒绝。
+- 只允许最低两位形成的 `0x00` 到 `0x03`：普通/压缩普通 frame 与普通/压缩 EndStream。`0x03` 只有 negotiated encoding 为 `gzip` 且解压后的 EndStream JSON 合法时接受；6 个保留位一律拒绝。
 - 检查声明长度不超过单帧压缩上限、不超过剩余输入，并用安全整数运算计算 frame end。
 - 压缩位只有 negotiated encoding 为 `gzip` 时允许；identity 响应出现压缩位、gzip 协商下压缩状态不一致或 gzip 解压失败均拒绝。
 - gzip 使用 `gunzipSync(..., { maxOutputLength })` 或等价接口，解压超限映射 `FC_OUTPUT_LIMIT`，格式错误映射 `FC_PROTOCOL_INVALID`，绝不 raw fallback。
@@ -98,4 +98,3 @@ glob 仍通过 PathGuard 枚举结果筛选，`**/` 转换为“零个或多个�
 - PREP_COMMIT 是独立基线，不与产品提交合并。
 - 产品按 `047/048`、`045/046`、`049` 三个依赖阶段提交；任一阶段可独立回退，不撤销前序安全修复。
 - 不执行数据迁移、发布或全局安装；回滚仅涉及本仓库代码、测试、任务和 spec。
-
