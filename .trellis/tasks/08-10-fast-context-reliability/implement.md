@@ -48,16 +48,16 @@
 - [x] 对所有修改的 `.mjs` 运行 `node --check`。
 - [x] 运行 `python3 ./.trellis/scripts/task.py validate 08-10-fast-context-reliability`。
 - [x] 运行 `trellis update --dry-run` 与 `git diff --check`。
-- [ ] 按 Trellis 流程归档任务、记录会话并提交收尾记录；发布仅按第 5 节执行，父仓库保持只读。
-- [ ] 确认最终分支工作区干净并记录 FINAL_HEAD。
+- [x] 按 Trellis 流程归档任务、记录会话并提交收尾记录；发布仅按第 5 节执行，父仓库保持只读。
+- [x] 确认最终分支工作区干净并记录 FINAL_HEAD。
 
 ## 5. 补丁版本发布
 
 - [x] 读取并遵守仓库 release preflight、工件准备、证据验证、tag 与 npm 发布脚本，不绕过 provenance 和 allowlist。
 - [x] 将组件版本从 `0.1.3` 升级为 `0.1.4`，生成并核验标准 npm tarball，不新增运行时依赖或包内容。
-- [ ] 在全部修复、spec、测试和发布预检通过后合入组件 `main`，创建既有流程要求的发布提交与 annotated tag。
-- [ ] 发布 npm `0.1.4`，验证 registry 元数据与下载 tarball；仅在仓库流程明确要求时 push 组件分支/tag，不修改父仓库。
-- [ ] 记录发布提交、tag、包名、版本、tarball 摘要与未验证项，最终工作区保持干净。
+- [x] 在全部修复、spec、测试和发布预检通过后合入组件 `main`，创建既有流程要求的发布提交与 annotated tag。
+- [x] 发布 npm `0.1.4`，验证 registry 元数据与下载 tarball；仅在仓库流程明确要求时 push 组件分支/tag，不修改父仓库。
+- [x] 记录发布提交、tag、包名、版本、tarball 摘要与未验证项，最终工作区保持干净。
 
 ## 风险文件与复核点
 

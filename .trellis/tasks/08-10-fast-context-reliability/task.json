@@ -31,6 +31,11 @@
     "search_commit": "d9b2ba6da097465d3ac7589ecf56f26c17bb251f",
     "candidate_commit": "f772167c821df5b2c60ecf635e7ca69fb063060c",
     "quality_commit": "2c70040c9455756fa5341590ad2fdf53f9cf406d",
-    "release_tag": "v0.1.4"
+    "release_tag": "v0.1.4",
+    "release_source_commit": "cbe88d1baafb31478b23af9e8a862539662316f1",
+    "release_evidence_commit": "46e3e3a1f0c34e5918cabe4454b03a2372115376",
+    "release_package": "@pennixrv/fast-context-skill@0.1.4",
+    "release_tarball_sha256": "df05802d3a4652464390040b8495acada4198a184ad86917300f21e7201e5c1c",
+    "release_workflow_run": "31382072033"
   }
 }
