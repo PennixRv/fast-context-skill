@@ -420,7 +420,7 @@ function queryTerms(query) {
   )].slice(0, 8);
 }
 
-function parseAnswer(answer, guard, maxResults, query, coverage) {
+async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, executor) {
   if (typeof answer !== "string" || answer.length > MAX_TOOL_ARGS_BYTES) {
     throw protocolError();
   }
@@ -429,28 +429,27 @@ function parseAnswer(answer, guard, maxResults, query, coverage) {
   const fileExpression = /<file\s+path=(["'])([^"']+)\1>([\s\S]*?)<\/file>/g;
   let match;
   while ((match = fileExpression.exec(answer)) !== null && candidates.length < maxResults) {
-    let file;
-    try {
-      file = guard.resolveExisting(match[2], { kind: "file" });
-    } catch {
-      continue;
-    }
-    if (seen.has(file.relativePath)) continue;
     const range = match[3].match(/<range>(\d+)-(\d+)<\/range>/);
     if (!range) continue;
     const startLine = Number(range[1]);
     const endLine = Number(range[2]);
-    if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine) || startLine < 1 || endLine < startLine) {
+    let validated;
+    try {
+      validated = await guard.validateCandidateRange(match[2], startLine, endLine, budget);
+    } catch (error) {
+      if (budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw networkError();
       continue;
     }
-    seen.add(file.relativePath);
+    if (!validated || seen.has(validated.relativePath)) continue;
+    seen.add(validated.relativePath);
     candidates.push({
-      path: file.relativePath,
-      start_line: startLine,
-      end_line: endLine,
-      reason: "semantic_candidate",
+      path: validated.relativePath,
+      start_line: validated.startLine,
+      end_line: validated.endLine,
+      reason: "local_range_validated",
     });
   }
+  const coverage = searchCoverage(budget, repoMap, executor);
   const candidateLimitReached = candidates.length >= maxResults;
   const reasons = new Set(coverage.reasons);
   if (candidateLimitReached) reasons.add("candidate_result_limit");
@@ -510,7 +509,13 @@ export async function search({
     throw new FastContextError("FC_QUERY_REQUIRED");
   }
   requireApiKey(apiKey);
-  if (!guard || typeof guard.buildRepoMap !== "function") throw protocolError();
+  if (
+    !guard
+    || typeof guard.buildRepoMap !== "function"
+    || typeof guard.validateCandidateRange !== "function"
+  ) {
+    throw protocolError();
+  }
 
   const budget = new ResourceBudget({ timeoutMs, signal, limits: resourceLimits, now });
   try {
@@ -539,12 +544,14 @@ export async function search({
       const toolCall = parseResponse(response);
 
       if (toolCall.name === "answer") {
-        return parseAnswer(
+        return await parseAnswer(
           toolCall.args.answer,
           guard,
           boundedResults,
           query,
-          searchCoverage(budget, repoMap, executor),
+          budget,
+          repoMap,
+          executor,
         );
       }
       if (toolCall.name !== "restricted_exec") throw protocolError();

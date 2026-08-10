@@ -13,7 +13,7 @@ set.
 Successful stdout is one JSON object:
 
 ```json
-{"status":"truncated","search_terms":["import"],"candidates":[{"path":"src/import.mjs","start_line":12,"end_line":20,"reason":"semantic_candidate"}],"truncated":true,"coverage":{"visited":{"entries":4096,"directories":128,"files":2048,"matches":37,"outputBytes":18320},"continuation":{"pending_directories":3,"next_path":"/codebase/src/remaining"},"reasons":["file_limit"]}}
+{"status":"truncated","search_terms":["import"],"candidates":[{"path":"src/import.mjs","start_line":12,"end_line":20,"reason":"local_range_validated"}],"truncated":true,"coverage":{"visited":{"entries":4096,"directories":128,"files":2048,"matches":37,"outputBytes":18320},"continuation":{"pending_directories":3,"next_path":"/codebase/src/remaining"},"reasons":["file_limit"]}}
 ```
 
 `status: "complete"` means every PathGuard-approved path in the bounded local
@@ -32,7 +32,20 @@ contain only a fixed local `FC_*` code. A truncated no-match tool result is
 rendered as `(no matches in visited files|paths)`, never as conclusive
 `(no matches)`.
 
-Candidate paths are revalidated locally through PathGuard. Remote prose, raw
-protocol frames, file contents, repository maps, progress events, child stderr,
-and caught exception messages are never public output. Public failures use a
-fixed `FC_*` code and local diagnostic text on stderr.
+Candidate projection has three separate guarantees:
+
+1. Path validation: PathGuard rechecks canonical-root containment, hard and
+   additional deny rules, ordinary-file type, and symlink escape behavior.
+2. Range validation: the component opens the approved file and accepts only
+   positive, ordered, 1-based ranges spanning at most 200 lines. The start and
+   end must both exist in the same non-empty file version. There is no clamp;
+   EOF overflow, empty files, oversized spans, and files changed during
+   validation are dropped. A local change marks coverage as `truncated` with
+   the fixed reason `candidate_changed`.
+3. Semantic validation: the caller must read the returned source and decide
+   whether it answers the query. `reason: "local_range_validated"` does not
+   assert semantic correctness and no remote reason/prose is forwarded.
+
+Remote prose, raw protocol frames, file contents, repository maps, progress
+events, child stderr, and caught exception messages are never public output.
+Public failures use a fixed `FC_*` code and local diagnostic text on stderr.

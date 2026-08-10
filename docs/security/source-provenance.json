@@ -42,7 +42,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Local-first operating and security documentation.",
-      "shipped_sha256": "92a62182f5b6182699130345b4bb84b0b24a002c29f8d96e962f256bee926fd5"
+      "shipped_sha256": "beeb60572c8dc62da80459b1862c0fcf1ceaad82000a7eb50d7482482fabb27e"
     },
     {
       "path": "SKILL.md",
@@ -70,14 +70,14 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Finite CLI and redacted output contract.",
-      "shipped_sha256": "b743f325f027125f11623b2452303bc9013b8bf7ebfffdc0dedbd636f7e6916f"
+      "shipped_sha256": "183b1f9146b4e114831d47c629f1de87bcdaeb606272c6cd7bc8799cb5262bda"
     },
     {
       "path": "references/source-provenance.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "c8c8af102b3afa084ed5a39e5cf64bbf991da603f93f8f59578b24148f64d228"
+      "shipped_sha256": "ae1e2de38902d055492bacf48345f379c097b10027b749c9f5c961567395c037"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -102,7 +102,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Bounded protocol client with local candidate revalidation.",
-      "shipped_sha256": "9f5cf45006121cfe334dfeee9ff6c66aa284986403cfab238c84d69de5d81024"
+      "shipped_sha256": "8a870674b23b4f5dffd1bc5673b0a5e62db3679af879f3a24cd0ce3d7bc9fd00"
     },
     {
       "path": "scripts/lib/executor.mjs",
@@ -116,7 +116,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Canonical containment, immutable deny set, and bounded walking.",
-      "shipped_sha256": "d2b37c0b22d02a313edccdaf2bc93f3f67fa85ca359070f3aca6ac7a9899c011"
+      "shipped_sha256": "c1de622b6c92bf1b415efb5d788a6327dd92836d4f3cb28e91f95999f7d4c98f"
     },
     {
       "path": "scripts/lib/protobuf.mjs",

@@ -88,9 +88,9 @@ function fixture() {
   return root;
 }
 
-function answerFrame() {
+function answerFrame(answer = '<file path="/codebase/src/candidate.mjs"><range>1-1</range></file><file path="/tmp/SECRET_SENTINEL"><range>1-2</range></file>') {
   return protoString(
-    "[TOOL_CALLS]answer[ARGS]{\"answer\":\"<file path=\\\"/codebase/src/candidate.mjs\\\"><range>1-1</range></file><file path=\\\"/tmp/SECRET_SENTINEL\\\"><range>1-2</range></file>\"}",
+    `[TOOL_CALLS]answer[ARGS]${JSON.stringify({ answer })}`,
   );
 }
 
@@ -131,7 +131,7 @@ test("search uses injected protocol streams and locally revalidates candidates",
       path: "src/candidate.mjs",
       start_line: 1,
       end_line: 1,
-      reason: "semantic_candidate",
+      reason: "local_range_validated",
     }]);
     assert.deepEqual(result.search_terms, ["find", "candidate"]);
     assert.deepEqual(result.coverage.reasons, []);
@@ -366,6 +366,83 @@ test("repository-map truncation remains explicit in the public result", async ()
   }
 });
 
+test("remote ranges are dropped on EOF, empty files, and span while valid final lines remain", async () => {
+  const root = fixture();
+  writeFileSync(join(root, "start-over.txt"), "one\ntwo\nthree\n");
+  writeFileSync(join(root, "end-over.txt"), "one\ntwo\nthree\n");
+  writeFileSync(join(root, "empty.txt"), "");
+  writeFileSync(join(root, "long.txt"), Array.from({ length: 201 }, (_, index) => `line-${index + 1}`).join("\n"));
+  writeFileSync(join(root, "valid-tail.txt"), "one\ntwo\nthree\n");
+  writeFileSync(join(root, "valid-no-tail.txt"), "one\ntwo\nthree");
+  const answer = [
+    '<file path="/codebase/start-over.txt"><range>4-4</range></file>',
+    '<file path="/codebase/end-over.txt"><range>2-4</range></file>',
+    '<file path="/codebase/empty.txt"><range>1-1</range></file>',
+    '<file path="/codebase/long.txt"><range>1-201</range></file>',
+    '<file path="/codebase/valid-tail.txt"><range>3-3</range><reason>REMOTE_SENTINEL</reason></file>',
+    '<file path="/codebase/valid-no-tail.txt"><range>3-3</range></file>',
+  ].join("");
+  try {
+    const result = await search({
+      query: "validate ranges",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => url.includes("GetUserJwt")
+        ? response(protoString("eyJ.synthetic.jwt"))
+        : response(connectResponse([answerFrame(answer)]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        }),
+    });
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.candidates, [
+      { path: "valid-tail.txt", start_line: 3, end_line: 3, reason: "local_range_validated" },
+      { path: "valid-no-tail.txt", start_line: 3, end_line: 3, reason: "local_range_validated" },
+    ]);
+    assert.doesNotMatch(JSON.stringify(result), /REMOTE_SENTINEL/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a file changed during range validation degrades to a local truncated result", async () => {
+  const root = fixture();
+  try {
+    const guard = new PathGuard(root);
+    const buildRepoMap = guard.buildRepoMap.bind(guard);
+    guard.buildRepoMap = async (budget) => {
+      const result = await buildRepoMap(budget);
+      const resolveExistingAsync = guard.resolveExistingAsync.bind(guard);
+      let candidateResolutions = 0;
+      guard.resolveExistingAsync = async (...args) => {
+        if (args[0] === "/codebase/src/candidate.mjs") {
+          candidateResolutions += 1;
+          if (candidateResolutions === 2) {
+            writeFileSync(join(root, "src", "candidate.mjs"), "changed\nwith\nmore\nlines\n");
+          }
+        }
+        return resolveExistingAsync(...args);
+      };
+      return result;
+    };
+    const result = await search({
+      query: "changing candidate",
+      guard,
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => url.includes("GetUserJwt")
+        ? response(protoString("eyJ.synthetic.jwt"))
+        : response(connectResponse([answerFrame()]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        }),
+    });
+    assert.equal(result.status, "truncated");
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.candidates, []);
+    assert.deepEqual(result.coverage.reasons, ["candidate_changed"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("typed local tool results are carried into the next protocol request", async () => {
   const root = fixture();
   const requestFrames = [];
@@ -403,6 +480,9 @@ test("four commands across three rounds consume one decreasing deadline", async 
   const observedTimeouts = [];
   const guard = {
     root: "/unused",
+    async validateCandidateRange() {
+      return null;
+    },
     async buildRepoMap(budget) {
       return {
         status: "complete",
@@ -462,6 +542,9 @@ test("a local deadline stops the active command round without a fresh timeout", 
   let toolCalls = 0;
   const guard = {
     root: "/unused",
+    async validateCandidateRange() {
+      return null;
+    },
     async buildRepoMap(budget) {
       return {
         status: "complete",

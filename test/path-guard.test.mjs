@@ -210,6 +210,69 @@ test("small repository traversal has repeatable scale and latency", async (t) =>
   }
 });
 
+test("candidate ranges fail closed on EOF, empty files, span, escapes, and file changes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fast-context-ranges-"));
+  mkdirSync(join(root, "denied"));
+  writeFileSync(join(root, "trailing.txt"), "one\ntwo\nthree\n");
+  writeFileSync(join(root, "no-tail.txt"), "one\ntwo\nthree");
+  writeFileSync(join(root, "empty.txt"), "");
+  writeFileSync(join(root, "long.txt"), Array.from({ length: 201 }, (_, index) => `line-${index + 1}`).join("\n"));
+  writeFileSync(join(root, "changing.txt"), "stable\ncontent\n");
+  writeFileSync(join(root, "denied", "hidden.txt"), "hidden\n");
+  const outside = mkdtempSync(join(tmpdir(), "fast-context-range-outside-"));
+  writeFileSync(join(outside, "outside.txt"), "outside\n");
+  symlinkSync(join(outside, "outside.txt"), join(root, "escape.txt"));
+  const budget = createBudget();
+  const changingBudget = createBudget();
+  try {
+    const guard = new PathGuard(root, ["denied/*"]);
+    assert.deepEqual(
+      await guard.validateCandidateRange("/codebase/trailing.txt", 3, 3, budget),
+      { relativePath: "trailing.txt", startLine: 3, endLine: 3, lineCount: 3 },
+    );
+    assert.deepEqual(
+      await guard.validateCandidateRange("/codebase/no-tail.txt", 3, 3, budget),
+      { relativePath: "no-tail.txt", startLine: 3, endLine: 3, lineCount: 3 },
+    );
+    assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 4, 4, budget), null);
+    assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 2, 4, budget), null);
+    assert.equal(await guard.validateCandidateRange("/codebase/empty.txt", 1, 1, budget), null);
+    assert.equal(await guard.validateCandidateRange("/codebase/long.txt", 1, 201, budget), null);
+    await assert.rejects(
+      guard.validateCandidateRange("/codebase/denied/hidden.txt", 1, 1, budget),
+      { code: "FC_PATH_DENIED" },
+    );
+    await assert.rejects(
+      guard.validateCandidateRange("/codebase/escape.txt", 1, 1, budget),
+      { code: "FC_PATH_DENIED" },
+    );
+    await assert.rejects(
+      guard.validateCandidateRange("/tmp/outside.txt", 1, 1, budget),
+      { code: "FC_PATH_INVALID" },
+    );
+
+    const changingGuard = new PathGuard(root);
+    const resolveExistingAsync = changingGuard.resolveExistingAsync.bind(changingGuard);
+    let resolveCalls = 0;
+    changingGuard.resolveExistingAsync = async (...args) => {
+      resolveCalls += 1;
+      if (resolveCalls === 2) writeFileSync(join(root, "changing.txt"), "changed\nwith\nmore\nlines\n");
+      return resolveExistingAsync(...args);
+    };
+    assert.equal(
+      await changingGuard.validateCandidateRange("/codebase/changing.txt", 1, 1, changingBudget),
+      null,
+    );
+    assert.equal(changingBudget.truncated, true);
+    assert.deepEqual(changingBudget.snapshot().reasons, ["candidate_changed"]);
+  } finally {
+    budget.dispose();
+    changingBudget.dispose();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("ResourceBudget uses one monotonic deadline and external cancellation", () => {
   let now = 1_000;
   const controller = new AbortController();

@@ -43,6 +43,16 @@ and does not prove semantic correctness or unrestricted whole-repository
 coverage. `truncated` means the returned candidates may be incomplete; it is
 never rendered as a conclusive `(no matches)` result.
 
+Candidate projection has three distinct trust boundaries. PathGuard first
+revalidates canonical containment, deny rules, and symlink escapes. It then
+opens the approved file and accepts only a 1-based range of at most 200 lines
+that exists in one unchanged file version; empty files, EOF overflow, oversized
+ranges, and files changed during validation are dropped without clamping.
+Finally, callers must still inspect the returned source and decide whether it
+actually satisfies the requested behavior. The fixed
+`reason: "local_range_validated"` describes local path/range validation only,
+not semantic correctness.
+
 ## Development
 
 All checks are offline and use temporary fixtures or injected request runners:

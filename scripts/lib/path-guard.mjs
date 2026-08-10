@@ -1,9 +1,11 @@
 import {
+  constants,
   realpathSync,
   statSync,
 } from "node:fs";
 import {
   lstat as lstatAsync,
+  open,
   opendir,
   readFile,
   realpath as realpathAsync,
@@ -14,6 +16,7 @@ import { FastContextError } from "./public-error.mjs";
 
 const VIRTUAL_ROOT = "/codebase";
 const MAX_FILE_BYTES = 64 * 1024;
+const MAX_CANDIDATE_RANGE_LINES = 200;
 const MAX_ELAPSED_MS = 30_000;
 const MAX_VISITED_ENTRIES = 4_096;
 const MAX_VISITED_DIRECTORIES = 512;
@@ -243,6 +246,14 @@ function typedResult(status, payload, budget, continuation = null, reason = null
     continuation,
     reason,
   };
+}
+
+function sameFileVersion(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeNs === right.mtimeNs
+    && left.ctimeNs === right.ctimeNs;
 }
 
 export class PathGuard {
@@ -614,6 +625,83 @@ export class PathGuard {
     return typedResult(truncated ? "truncated" : "complete", { output }, budget, null, truncated ? "line_limit" : null);
   }
 
+  async validateCandidateRange(value, startLine, endLine, budget) {
+    budget.assertActive();
+    if (
+      !Number.isSafeInteger(startLine)
+      || !Number.isSafeInteger(endLine)
+      || startLine < 1
+      || endLine < startLine
+      || endLine - startLine + 1 > MAX_CANDIDATE_RANGE_LINES
+    ) {
+      return null;
+    }
+
+    const file = await this.resolveExistingAsync(value, { kind: "file" });
+    if (!budget.tryConsume("files", 1, "file_limit")) return null;
+
+    let handle;
+    let before;
+    let after;
+    let content;
+    try {
+      handle = await open(file.absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+      before = await handle.stat({ bigint: true });
+      const pathBefore = await statAsync(file.absolutePath, { bigint: true });
+      if (!sameFileVersion(before, pathBefore)) {
+        budget.markTruncated("candidate_changed");
+        return null;
+      }
+      if (before.size > BigInt(MAX_FILE_BYTES)) return null;
+      content = await handle.readFile({ signal: budget.signal });
+      after = await handle.stat({ bigint: true });
+    } catch {
+      if (budget.signal.aborted) throw pathError("FC_REMOTE_UNAVAILABLE");
+      throw pathError("FC_PATH_UNAVAILABLE");
+    } finally {
+      try {
+        await handle?.close();
+      } catch {
+        // Validation fails through the version checks; close errors are not public.
+      }
+    }
+
+    budget.assertActive();
+    if (!sameFileVersion(before, after)) {
+      budget.markTruncated("candidate_changed");
+      return null;
+    }
+
+    let current;
+    try {
+      current = await this.resolveExistingAsync(value, { kind: "file" });
+      const pathAfter = await statAsync(current.absolutePath, { bigint: true });
+      if (current.absolutePath !== file.absolutePath || !sameFileVersion(before, pathAfter)) {
+        budget.markTruncated("candidate_changed");
+        return null;
+      }
+    } catch {
+      budget.markTruncated("candidate_changed");
+      return null;
+    }
+
+    budget.assertActive();
+    if (content.length === 0) return null;
+    let newlineCount = 0;
+    for (const byte of content) {
+      if (byte === 0x0a) newlineCount += 1;
+    }
+    const lineCount = newlineCount + (content.at(-1) === 0x0a ? 0 : 1);
+    if (startLine > lineCount || endLine > lineCount) return null;
+
+    return {
+      relativePath: current.relativePath,
+      startLine,
+      endLine,
+      lineCount,
+    };
+  }
+
   async tree(value = VIRTUAL_ROOT, levels = 2, budget) {
     const depthLimit = Math.max(0, Math.min(MAX_TREE_DEPTH, Number(levels) || 0));
     const start = await this.resolveExistingAsync(value, { kind: "directory", allowRoot: true });
@@ -720,6 +808,7 @@ export class PathGuard {
 
 export const PATH_GUARD_LIMITS = Object.freeze({
   MAX_FILE_BYTES,
+  MAX_CANDIDATE_RANGE_LINES,
   MAX_ELAPSED_MS,
   MAX_VISITED_ENTRIES,
   MAX_VISITED_DIRECTORIES,
