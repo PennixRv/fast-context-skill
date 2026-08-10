@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { gunzipSync } from "node:zlib";
 import { PathGuard } from "../scripts/lib/path-guard.mjs";
 import { search } from "../scripts/lib/core.mjs";
 import {
@@ -93,6 +94,24 @@ function answerFrame() {
   );
 }
 
+function restrictedExecFrame(commands) {
+  return protoString(`[TOOL_CALLS]restricted_exec[ARGS]${JSON.stringify(commands)}`);
+}
+
+function fourTreeCommands() {
+  return Object.fromEntries(Array.from({ length: 4 }, (_, index) => [
+    `command${index + 1}`,
+    { type: "tree", path: "/codebase", levels: 1 },
+  ]));
+}
+
+function decodeRequestFrame(body) {
+  assert.equal(body[0], 0x01);
+  const length = body.readUInt32BE(1);
+  assert.equal(length, body.length - 5);
+  return gunzipSync(body.subarray(5));
+}
+
 test("search uses injected protocol streams and locally revalidates candidates", async () => {
   const root = fixture();
   const calls = [];
@@ -106,6 +125,8 @@ test("search uses injected protocol streams and locally revalidates candidates",
       });
     };
     const result = await search({ query: "find candidate", guard, apiKey: syntheticKey, fetchImpl });
+    assert.equal(result.status, "complete");
+    assert.equal(result.truncated, false);
     assert.deepEqual(result.candidates, [{
       path: "src/candidate.mjs",
       start_line: 1,
@@ -113,6 +134,8 @@ test("search uses injected protocol streams and locally revalidates candidates",
       reason: "semantic_candidate",
     }]);
     assert.deepEqual(result.search_terms, ["find", "candidate"]);
+    assert.deepEqual(result.coverage.reasons, []);
+    assert.ok(result.coverage.visited.entries >= 2);
     assert.equal(calls.length, 2);
     assert.match(calls[0].options.body.toString("utf8"), /synthetic-key/);
   } finally {
@@ -317,4 +340,171 @@ test("remote EndStream errors never produce successful candidates", async () => 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("repository-map truncation remains explicit in the public result", async () => {
+  const root = fixture();
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      resourceLimits: { MAX_VISITED_ENTRIES: 1 },
+      fetchImpl: async (url) => url.includes("GetUserJwt")
+        ? response(protoString("eyJ.synthetic.jwt"))
+        : response(connectResponse([answerFrame()]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        }),
+    });
+    assert.equal(result.status, "truncated");
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.coverage.reasons, ["entry_limit"]);
+    assert.ok(result.coverage.continuation);
+    assert.equal(result.candidates.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("typed local tool results are carried into the next protocol request", async () => {
+  const root = fixture();
+  const requestFrames = [];
+  let streamCall = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        requestFrames.push(decodeRequestFrame(options.body));
+        streamCall += 1;
+        return response(connectResponse([
+          streamCall === 1
+            ? restrictedExecFrame({ command1: { type: "tree", path: "/codebase", levels: 1 } })
+            : answerFrame(),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(result.status, "complete");
+    assert.equal(requestFrames.length, 2);
+    assert.equal(requestFrames[1].includes(Buffer.from('"status":"complete"')), true);
+    assert.equal(requestFrames[1].includes(Buffer.from('"visited"')), true);
+    assert.equal(requestFrames[1].includes(Buffer.from("restricted local tool request accepted")), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("four commands across three rounds consume one decreasing deadline", async () => {
+  let now = 0;
+  let streamCalls = 0;
+  let toolCalls = 0;
+  const observedTimeouts = [];
+  const guard = {
+    root: "/unused",
+    async buildRepoMap(budget) {
+      return {
+        status: "complete",
+        output: "/codebase",
+        visited: budget.snapshot().visited,
+        continuation: null,
+        reason: null,
+      };
+    },
+    async tree(_path, _levels, budget) {
+      toolCalls += 1;
+      now += 15;
+      budget.assertActive();
+      budget.tryConsume("directories", 1, "directory_limit");
+      const output = "/codebase";
+      budget.tryConsume("outputBytes", Buffer.byteLength(output), "output_limit");
+      return {
+        status: "complete",
+        output,
+        visited: budget.snapshot().visited,
+        continuation: null,
+        reason: null,
+      };
+    },
+  };
+  const started = performance.now();
+  await assert.rejects(
+    search({
+      query: "bounded rounds",
+      guard,
+      apiKey: syntheticKey,
+      timeoutMs: 1_000,
+      now: () => now,
+      fetchImpl: async (url, options) => {
+        now += 10;
+        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        observedTimeouts.push(Number(options.headers["Connect-Timeout-Ms"]));
+        streamCalls += 1;
+        return response(connectResponse([restrictedExecFrame(fourTreeCommands())]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    }),
+    { code: "FC_PROTOCOL_INVALID" },
+  );
+  assert.equal(streamCalls, 3);
+  assert.equal(toolCalls, 12);
+  assert.equal(observedTimeouts.length, 3);
+  assert.ok(observedTimeouts[0] > observedTimeouts[1]);
+  assert.ok(observedTimeouts[1] > observedTimeouts[2]);
+  assert.ok(performance.now() - started < 500);
+});
+
+test("a local deadline stops the active command round without a fresh timeout", async () => {
+  let now = 0;
+  let fetchCalls = 0;
+  let toolCalls = 0;
+  const guard = {
+    root: "/unused",
+    async buildRepoMap(budget) {
+      return {
+        status: "complete",
+        output: "/codebase",
+        visited: budget.snapshot().visited,
+        continuation: null,
+        reason: null,
+      };
+    },
+    async tree(_path, _levels, budget) {
+      toolCalls += 1;
+      now += 60;
+      budget.assertActive();
+      return {
+        status: "complete",
+        output: "/codebase",
+        visited: budget.snapshot().visited,
+        continuation: null,
+        reason: null,
+      };
+    },
+  };
+  const started = performance.now();
+  await assert.rejects(
+    search({
+      query: "local timeout",
+      guard,
+      apiKey: syntheticKey,
+      timeoutMs: 100,
+      now: () => now,
+      fetchImpl: async (url) => {
+        fetchCalls += 1;
+        now += 5;
+        return url.includes("GetUserJwt")
+          ? response(protoString("eyJ.synthetic.jwt"))
+          : response(connectResponse([restrictedExecFrame(fourTreeCommands())]), {
+            headers: { "Connect-Content-Encoding": "gzip" },
+          });
+      },
+    }),
+    { code: "FC_REMOTE_UNAVAILABLE" },
+  );
+  assert.equal(fetchCalls, 2);
+  assert.equal(toolCalls, 2);
+  assert.ok(performance.now() - started < 500);
 });

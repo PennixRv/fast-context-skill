@@ -90,11 +90,11 @@ glob 仍通过 PathGuard 枚举结果筛选，`**/` 转换为“零个或多个�
 ## 兼容性与文档
 
 - Node 版本保持 `>=20`，只使用 Node 20 已支持的 Web Streams、AbortSignal、异步 child process 与 `zlib.maxOutputLength`。
-- 不增加 npm 运行时依赖，不改变 package allowlist 和 provenance/release 文件。
+- 不增加 npm 运行时依赖，不弱化 package allowlist 与 provenance/release 规则；实现完成后按既有证据链生成 `0.1.4` 发布工件，发布元数据只包含流程要求的机械更新。
 - README 与 `references/script-contract.md` 更新 complete/truncated/failure、路径复核与范围复核边界；不声称语义正确性已由组件最终验证。
 
 ## 回滚点
 
 - PREP_COMMIT 是独立基线，不与产品提交合并。
 - 产品按 `047/048`、`045/046`、`049` 三个依赖阶段提交；任一阶段可独立回退，不撤销前序安全修复。
-- 不执行数据迁移、发布或全局安装；回滚仅涉及本仓库代码、测试、任务和 spec。
+- 不执行数据迁移或全局安装；产品修复按阶段可回滚。补丁发布只在全量质量门槛通过后进行，发布失败按仓库既有流程停止，不修改父仓库补偿状态。

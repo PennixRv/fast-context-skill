@@ -13,6 +13,7 @@
 - 本地目录遍历没有统一的条目、目录、深度、文件、匹配、输出字节和 elapsed 预算；`execFileSync` 不可由调用方取消；最多 4 命令乘 3 轮及网络请求各自重新获得完整 timeout。
 - 候选路径会经过 PathGuard，但远端给出的 `start_line`/`end_line` 只检查正整数和顺序，不检查 EOF、跨度或验证期间文件变化。
 - 所有协议和网络测试必须使用脱敏离线夹具与注入的 fetch/stream；不得读取或使用真实 `WINDSURF_API_KEY`，不得调用 Windsurf 服务。
+- 2026-08-10 用户在实施中明确扩大交付范围：全部修复与质量门槛通过后，允许按组件仓库既有发布流程升级补丁版本 `0.1.3 -> 0.1.4`、生成并核验 npm 包、合入组件 `main` 并发布；父仓库仍只读。
 
 ## 范围与要求
 
@@ -77,7 +78,7 @@
 - `WINDSURF_API_KEY` 是唯一凭据来源，并在任何 core import、DNS、socket 或 fetch 前验证。
 - 公开失败继续使用固定 `FC_*` 诊断，不泄露内部错误、响应内容、路径或凭据。
 - 保持 Node `>=20`、现有 npm 包内容 allowlist 和 provenance/release 安全规则。
-- 只修改组件仓库，不修改父仓库 issue、任务、Gitlink 或 Git；不 push、不发布、不打 tag、不全局安装。
+- 只修改组件仓库，不修改父仓库 issue、任务、Gitlink 或 Git；组件 push、tag 与 npm 发布仅可在全部修复和质量门槛通过后按仓库既有发布流程执行，不做全局安装。
 
 ## 非目标
 
@@ -85,7 +86,7 @@
 - 不处理中文查询 `search_terms` 为空。
 - 不改变 `--max-results` 使用的诊断类别。
 - 不改变大于 64 KiB 文件不能整文件读取的现有限制。
-- 不升级包版本，不生成 release artifact，不打 tag，不执行 `npm publish` 或全局安装。
+- 不做 major/minor 版本升级，不绕过仓库发布证据链，不做全局安装；发布范围仅限本任务获批的补丁版本 `0.1.4`。
 - 新发现只记录到本任务 research 与最终报告，除非它阻塞固定验收，不扩张实现范围。
 
 ## 依赖顺序
@@ -142,4 +143,4 @@
 - 运行 `python3 ./.trellis/scripts/task.py validate 08-10-fast-context-reliability`、`trellis update --dry-run` 与 `git diff --check`。
 - 使用 `trellis-check` 完成全量质量检查；契约变化通过 `trellis-update-spec` 更新组件 spec。
 - 按依赖阶段本地提交，不 squash 准备提交；最终归档任务并保持工作区干净。
-
+- 修复提交完成后按既有 release preflight、工件准备、证据验证、tag 与 npm 发布流程交付 `0.1.4`；发布前后都验证包内容与 registry 状态，不修改父仓库。

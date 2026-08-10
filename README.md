@@ -26,6 +26,23 @@ JSON result is emitted on stdout; fixed `FC_*` diagnostics are emitted on
 stderr. No MCP server, registration, approval, whitelist, or global agent
 configuration is required.
 
+## Bounded coverage
+
+Each invocation uses one monotonic deadline and one shared resource budget for
+authentication, protocol requests, directory traversal, glob matching, `rg`
+subprocesses, tool commands, and model rounds. Local enumeration limits visited
+entries, directories, depth, files, matches, and output bytes. Child processes
+run without a shell and are terminated and reaped when the caller cancels or
+the deadline expires.
+
+Successful JSON uses `status: "complete"` or `status: "truncated"` and includes
+local `coverage` counts, fixed reasons, and continuation information when
+available. `complete` means the search exhausted the paths that PathGuard was
+allowed to inspect within the named limits. It does not include denied paths
+and does not prove semantic correctness or unrestricted whole-repository
+coverage. `truncated` means the returned candidates may be incomplete; it is
+never rendered as a conclusive `(no matches)` result.
+
 ## Development
 
 All checks are offline and use temporary fixtures or injected request runners:

@@ -8,6 +8,7 @@ import {
   extractStrings,
 } from "./protobuf.mjs";
 import { ToolExecutor } from "./executor.mjs";
+import { ResourceBudget } from "./path-guard.mjs";
 import { FastContextError } from "./public-error.mjs";
 
 const API_BASE = "https://server.self-serve.windsurf.com/exa.api_server_pb.ApiServerService";
@@ -419,7 +420,7 @@ function queryTerms(query) {
   )].slice(0, 8);
 }
 
-function parseAnswer(answer, guard, maxResults, query) {
+function parseAnswer(answer, guard, maxResults, query, coverage) {
   if (typeof answer !== "string" || answer.length > MAX_TOOL_ARGS_BYTES) {
     throw protocolError();
   }
@@ -450,11 +451,34 @@ function parseAnswer(answer, guard, maxResults, query) {
       reason: "semantic_candidate",
     });
   }
+  const candidateLimitReached = candidates.length >= maxResults;
+  const reasons = new Set(coverage.reasons);
+  if (candidateLimitReached) reasons.add("candidate_result_limit");
+  const truncated = candidateLimitReached || coverage.truncated;
   return {
-    status: "ok",
+    status: truncated ? "truncated" : "complete",
     search_terms: queryTerms(query),
     candidates,
-    truncated: candidates.length >= maxResults,
+    truncated,
+    coverage: {
+      visited: coverage.visited,
+      continuation: coverage.continuation,
+      reasons: [...reasons].sort(),
+    },
+  };
+}
+
+function searchCoverage(budget, repoMap, executor) {
+  const snapshot = budget.snapshot();
+  const executorCoverage = executor.coverage();
+  const reasons = new Set(snapshot.reasons);
+  if (repoMap.status === "truncated" && repoMap.reason) reasons.add(repoMap.reason);
+  if (executorCoverage.failed) reasons.add("local_tool_failure");
+  return {
+    truncated: repoMap.status === "truncated" || executorCoverage.truncated,
+    visited: snapshot.visited,
+    continuation: executorCoverage.continuation || repoMap.continuation || null,
+    reasons: [...reasons].sort(),
   };
 }
 
@@ -467,6 +491,8 @@ function parseAnswer(answer, guard, maxResults, query) {
  *   timeoutMs?: number,
  *   fetchImpl?: typeof fetch,
  *   signal?: AbortSignal,
+ *   resourceLimits?: Partial<typeof import("./path-guard.mjs").RESOURCE_LIMITS>,
+ *   now?: () => number,
  * }} options
  */
 export async function search({
@@ -477,6 +503,8 @@ export async function search({
   timeoutMs = 30000,
   fetchImpl = globalThis.fetch,
   signal,
+  resourceLimits,
+  now,
 }) {
   if (typeof query !== "string" || query.trim().length === 0) {
     throw new FastContextError("FC_QUERY_REQUIRED");
@@ -484,42 +512,59 @@ export async function search({
   requireApiKey(apiKey);
   if (!guard || typeof guard.buildRepoMap !== "function") throw protocolError();
 
-  const boundedResults = Math.max(1, Math.min(50, Number(maxResults) || 10));
-  const jwt = await fetchJwt(apiKey, fetchImpl, timeoutMs, signal);
-  const executor = new ToolExecutor(guard);
-  const messages = [
-    { role: 5, content: systemPrompt() },
-    {
-      role: 1,
-      content: `Problem statement:\n${query.slice(0, 2000)}\n\nRepository map:\n${guard.buildRepoMap()}`,
-    },
-  ];
-  const definitions = toolDefinitions();
+  const budget = new ResourceBudget({ timeoutMs, signal, limits: resourceLimits, now });
+  try {
+    const boundedResults = Math.max(1, Math.min(50, Number(maxResults) || 10));
+    const jwt = await fetchJwt(apiKey, fetchImpl, budget.remainingMs(), budget.signal);
+    const executor = new ToolExecutor(guard, { budget });
+    const repoMap = await guard.buildRepoMap(budget);
+    const messages = [
+      { role: 5, content: systemPrompt() },
+      {
+        role: 1,
+        content: `Problem statement:\n${query.slice(0, 2000)}\n\nRepository map result:\n${JSON.stringify(repoMap)}`,
+      },
+    ];
+    const definitions = toolDefinitions();
 
-  for (let turn = 0; turn < MAX_TURNS; turn += 1) {
-    const request = buildRequest(apiKey, jwt, messages, definitions);
-    if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
-    const response = await streamingRequest(request, fetchImpl, timeoutMs, signal);
-    const toolCall = parseResponse(response);
+    for (let turn = 0; turn < MAX_TURNS; turn += 1) {
+      const request = buildRequest(apiKey, jwt, messages, definitions);
+      if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
+      const response = await streamingRequest(
+        request,
+        fetchImpl,
+        budget.remainingMs(),
+        budget.signal,
+      );
+      const toolCall = parseResponse(response);
 
-    if (toolCall.name === "answer") {
-      return parseAnswer(toolCall.args.answer, guard, boundedResults, query);
+      if (toolCall.name === "answer") {
+        return parseAnswer(
+          toolCall.args.answer,
+          guard,
+          boundedResults,
+          query,
+          searchCoverage(budget, repoMap, executor),
+        );
+      }
+      if (toolCall.name !== "restricted_exec") throw protocolError();
+
+      const toolResults = await executor.execToolCall(toolCall.args);
+      const toolCallId = randomUUID();
+      messages.push({
+        role: 2,
+        content: "restricted local tool request accepted",
+        toolCallId,
+        toolName: "restricted_exec",
+        toolArgsJson: JSON.stringify(toolCall.args),
+      });
+      messages.push({ role: 4, content: toolResults, refCallId: toolCallId });
     }
-    if (toolCall.name !== "restricted_exec") throw protocolError();
 
-    const toolResults = executor.execToolCall(toolCall.args);
-    const toolCallId = randomUUID();
-    messages.push({
-      role: 2,
-      content: "restricted local tool request accepted",
-      toolCallId,
-      toolName: "restricted_exec",
-      toolArgsJson: JSON.stringify(toolCall.args),
-    });
-    messages.push({ role: 4, content: toolResults, refCallId: toolCallId });
+    throw protocolError();
+  } finally {
+    budget.dispose();
   }
-
-  throw protocolError();
 }
 
 export async function searchWithContent({
@@ -530,10 +575,11 @@ export async function searchWithContent({
   denyPatterns = [],
   fetchImpl = globalThis.fetch,
   signal,
+  timeoutMs = 30000,
 }) {
   const { PathGuard } = await import("./path-guard.mjs");
   const guard = new PathGuard(projectRoot, denyPatterns);
-  const result = await search({ query, guard, apiKey, maxResults, fetchImpl, signal });
+  const result = await search({ query, guard, apiKey, maxResults, fetchImpl, signal, timeoutMs });
   return JSON.stringify(result);
 }
 
