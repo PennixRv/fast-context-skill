@@ -154,3 +154,28 @@ Published and independently verified @pennixrv/fast-context-skill@0.1.3; recorde
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 发布 Fast Context 凭据发现与远端错误分类 0.1.5
+
+**Date**: 2026-08-11
+**Task**: 发布 Fast Context 凭据发现与远端错误分类 0.1.5
+**Branch**: `main`
+
+### Summary
+
+实现受控 Devin 自动发现和公开远端错误分类；通过 WSL 实际探针、C/E/tag、远端精确预检、GitHub Actions 与 registry 摘要回验发布 0.1.5。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ee37829f03686d2a7430de213913f41b46083c51` | (see git log) |
+| `e344f5a` | (see git log) |
+| `211ab186ca8ea9dc082d8e673efbd0257dcecee1` | (see git log) |
+| `15ee0415f576ce052f8369a7a3d5832c34e0620a` | (see git log) |
+| `f1cc3c5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
