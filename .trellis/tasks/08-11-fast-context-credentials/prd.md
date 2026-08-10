@@ -42,4 +42,4 @@
 
 - [x] `npm test`、provenance、包内容、打包安装、Node 语法、Trellis 校验、Trellis dry-run 和 `git diff --check` 全部通过。
 - [x] 包 allowlist 包含新增运行文件，来源记录与源码一致。
-- [ ] 源码提交、补丁版本 C 提交、仅含 attestation 的 E 提交、注释 tag、GitHub Actions 发布及注册表 tarball 摘要均可验证。
+- [x] 源码提交、补丁版本 C 提交、仅含 attestation 的 E 提交、注释 tag、GitHub Actions 发布及注册表 tarball 摘要均可验证。

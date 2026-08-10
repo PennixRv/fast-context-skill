@@ -31,3 +31,11 @@
 - 发现辅助脚本无法把凭据限制在固定 Linux 路径、会把值写入持久状态或必须读取桌面数据库时，撤回自动发现实现并保留研究证据。
 - 任何公开输出含 token、路径、响应正文、认证头、请求 ID 或底层异常时，停止发布并先修复红action。
 - C/E/tag 证明链、远程 npm 预检或 GitHub Actions 发布/注册表摘要回验任一失败时，不重试发布，不重写 tag；保留失败证据并报告。
+
+## 发布完成
+
+- 源码提交：`ee37829f03686d2a7430de213913f41b46083c51`。
+- 最终 C 提交：`211ab186ca8ea9dc082d8e673efbd0257dcecee1`，受跟踪工件 SHA-256 为 `3c59b9c4eaa099812f886688ac90782a3048fc2053bc05d96617780ed35a09ae`。
+- E 提交：`15ee0415f576ce052f8369a7a3d5832c34e0620a`，仅新增 `docs/releases/attestations/v0.1.5.json`；annotated tag 为 `v0.1.5`。
+- `arch-via-nas` 使用临时 `Node 26.5.1` / `npm 12.0.1` 完成原生 `release:preflight`，不读取、复制或输出 npm token。
+- GitHub Actions `Publish npm (manual)` run `31436590840` 的 `validate` 与 `publish` 均成功；公开 registry tarball SHA-256 与 attestation 一致。
