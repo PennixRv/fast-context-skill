@@ -53,8 +53,8 @@
 
 ## 5. 补丁版本发布
 
-- [ ] 读取并遵守仓库 release preflight、工件准备、证据验证、tag 与 npm 发布脚本，不绕过 provenance 和 allowlist。
-- [ ] 将组件版本从 `0.1.3` 升级为 `0.1.4`，生成并核验标准 npm tarball，不新增运行时依赖或包内容。
+- [x] 读取并遵守仓库 release preflight、工件准备、证据验证、tag 与 npm 发布脚本，不绕过 provenance 和 allowlist。
+- [x] 将组件版本从 `0.1.3` 升级为 `0.1.4`，生成并核验标准 npm tarball，不新增运行时依赖或包内容。
 - [ ] 在全部修复、spec、测试和发布预检通过后合入组件 `main`，创建既有流程要求的发布提交与 annotated tag。
 - [ ] 发布 npm `0.1.4`，验证 registry 元数据与下载 tarball；仅在仓库流程明确要求时 push 组件分支/tag，不修改父仓库。
 - [ ] 记录发布提交、tag、包名、版本、tarball 摘要与未验证项，最终工作区保持干净。
