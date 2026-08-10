@@ -236,6 +236,8 @@ test("candidate ranges fail closed on EOF, empty files, span, escapes, and file 
     );
     assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 4, 4, budget), null);
     assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 2, 4, budget), null);
+    assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 0, 1, budget), null);
+    assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 3, 2, budget), null);
     assert.equal(await guard.validateCandidateRange("/codebase/empty.txt", 1, 1, budget), null);
     assert.equal(await guard.validateCandidateRange("/codebase/long.txt", 1, 201, budget), null);
     await assert.rejects(

@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { ResourceBudget } from "./path-guard.mjs";
+import { RESOURCE_LIMITS, ResourceBudget } from "./path-guard.mjs";
 import { FastContextError } from "./public-error.mjs";
 
 const MAX_COMMANDS = 4;
 const MAX_RG_PATTERN_LENGTH = 240;
-const MAX_RG_OUTPUT_BYTES = 512 * 1024;
+const MAX_RG_OUTPUT_BYTES = RESOURCE_LIMITS.MAX_OUTPUT_BYTES;
 const MAX_RG_FILES_PER_BATCH = 128;
 const PROCESS_KILL_GRACE_MS = 100;
 

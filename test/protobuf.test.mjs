@@ -35,7 +35,6 @@ test("Connect decoder accepts exact single, multi, identity, and gzip streams", 
     [first, second],
   );
 });
-
 test("Connect decoder rejects malformed headers, lengths, tails, and reserved flags", () => {
   const validMessage = connectFrameEncode(Buffer.from("message"), false);
   const validEnd = endStream();
@@ -123,4 +122,3 @@ test("Connect decoder separately bounds compressed, decompressed, and cumulative
     { code: "FC_PROTOCOL_INVALID" },
   );
 });
-

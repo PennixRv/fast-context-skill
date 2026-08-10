@@ -7,8 +7,8 @@ import {
   connectFrameEncode,
   extractStrings,
 } from "./protobuf.mjs";
-import { ToolExecutor } from "./executor.mjs";
-import { ResourceBudget } from "./path-guard.mjs";
+import { EXECUTOR_LIMITS, ToolExecutor } from "./executor.mjs";
+import { RESOURCE_LIMITS, ResourceBudget } from "./path-guard.mjs";
 import { FastContextError } from "./public-error.mjs";
 
 const API_BASE = "https://server.self-serve.windsurf.com/exa.api_server_pb.ApiServerService";
@@ -16,7 +16,7 @@ const AUTH_BASE = "https://server.self-serve.windsurf.com/exa.auth_pb.AuthServic
 const APP_NAME = "windsurf";
 const APP_VERSION = "1.48.2";
 const LANGUAGE_SERVER_VERSION = "1.9544.35";
-const MAX_COMMANDS = 4;
+const MAX_COMMANDS = EXECUTOR_LIMITS.MAX_COMMANDS;
 const MAX_REQUEST_BYTES = 128 * 1024;
 const MAX_RESPONSE_BYTES = CONNECT_LIMITS.MAX_RESPONSE_COMPRESSED_BYTES;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
@@ -153,7 +153,7 @@ async function cancelReader(reader) {
 async function readBoundedBody(response, byteLimit, signal) {
   const reader = response?.body?.getReader?.();
   if (!reader) throw networkError();
-  const chunks = [];
+  const body = Buffer.alloc(byteLimit);
   let totalBytes = 0;
 
   try {
@@ -166,10 +166,8 @@ async function readBoundedBody(response, byteLimit, signal) {
         await cancelReader(reader);
         throw outputLimitError();
       }
+      body.set(value, totalBytes);
       totalBytes += value.byteLength;
-      chunks.push(Buffer.isBuffer(value)
-        ? value
-        : Buffer.from(value.buffer, value.byteOffset, value.byteLength));
     }
   } catch (error) {
     await cancelReader(reader);
@@ -183,9 +181,7 @@ async function readBoundedBody(response, byteLimit, signal) {
     }
   }
 
-  if (chunks.length === 0) return Buffer.alloc(0);
-  if (chunks.length === 1) return chunks[0];
-  return Buffer.concat(chunks, totalBytes);
+  return totalBytes === 0 ? Buffer.alloc(0) : body.subarray(0, totalBytes);
 }
 
 async function postBinary(fetchImpl, url, body, headers, timeoutMs, externalSignal) {
@@ -499,7 +495,7 @@ export async function search({
   guard,
   apiKey,
   maxResults = 10,
-  timeoutMs = 30000,
+  timeoutMs = RESOURCE_LIMITS.MAX_ELAPSED_MS,
   fetchImpl = globalThis.fetch,
   signal,
   resourceLimits,
@@ -582,7 +578,7 @@ export async function searchWithContent({
   denyPatterns = [],
   fetchImpl = globalThis.fetch,
   signal,
-  timeoutMs = 30000,
+  timeoutMs = RESOURCE_LIMITS.MAX_ELAPSED_MS,
 }) {
   const { PathGuard } = await import("./path-guard.mjs");
   const guard = new PathGuard(projectRoot, denyPatterns);

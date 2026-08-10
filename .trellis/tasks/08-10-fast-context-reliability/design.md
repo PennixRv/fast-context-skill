@@ -24,7 +24,7 @@
 1. 验证 HTTP 状态和可选 `Content-Length`。合法且已超过压缩响应上限时提前拒绝；缺失、非十进制、负数或与实际不符时仍以流式累计为准。
 2. 使用 `Response.body.getReader()`（测试夹具也提供等价 Web `ReadableStream`）逐块读取。
 3. 每块加入累计前检查整数与压缩字节上限；超限或取消时调用 reader cancellation，并等待读取路径收敛。
-4. 仅在完整且有界后做一次最终合并，避免 `arrayBuffer -> Buffer.from` 的整包复制链。
+4. 将每块复制进单个固定压缩字节上限的 accumulator，完成后只返回已写入区间，避免 `arrayBuffer -> Buffer.from` 或 chunk list -> `Buffer.concat` 的整包复制链。
 
 ### Connect 严格最小 decoder
 

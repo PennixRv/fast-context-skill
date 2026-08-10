@@ -100,41 +100,41 @@
 
 ### 045
 
-- [ ] 第 513 个及后续文件不会静默退化为 `(no matches)`，截断有 typed 状态与 continuation/visited 信息。
-- [ ] `**/` 覆盖零目录和多目录，根级/嵌套/deny/symlink/无匹配/100 上限离线测试通过。
-- [ ] README、脚本契约、远端 tool result 和公开 CLI JSON 对 incomplete 语义一致。
+- [x] 第 513 个及后续文件不会静默退化为 `(no matches)`，截断有 typed 状态与 continuation/visited 信息。
+- [x] `**/` 覆盖零目录和多目录，根级/嵌套/deny/symlink/无匹配/100 上限离线测试通过。
+- [x] README、脚本契约、远端 tool result 和公开 CLI JSON 对 incomplete 语义一致。
 
 ### 046
 
-- [ ] 一次 `search()` 的网络、遍历、glob、rg、多命令和多轮共享单调 deadline 与调用方取消信号。
-- [ ] entries/directories/depth/files/matches/output bytes/elapsed 均有集中命名硬上限。
-- [ ] 宽/深/2,500 空目录及无匹配 glob 有界停止并报告截断。
-- [ ] 子进程在 timeout/abort 后确认退出且测试证明无遗留进程；4 x 3 路径仍受总截止时间约束。
-- [ ] 小仓库规模与延迟基准可重复且无明显回退。
+- [x] 一次 `search()` 的网络、遍历、glob、rg、多命令和多轮共享单调 deadline 与调用方取消信号。
+- [x] entries/directories/depth/files/matches/output bytes/elapsed 均有集中命名硬上限。
+- [x] 宽/深/2,500 空目录及无匹配 glob 有界停止并报告截断。
+- [x] 子进程在 timeout/abort 后确认退出且测试证明无遗留进程；4 x 3 路径仍受总截止时间约束。
+- [x] 小仓库规模与延迟基准可重复且无明显回退。
 
 ### 047
 
-- [ ] 压缩响应在完整缓冲前受硬上限，缺失或错误 `Content-Length` 不绕过限制。
-- [ ] 单帧压缩、单帧解压和累计解压硬上限均有离线测试。
-- [ ] gzip bomb、解压失败、慢速流和中途取消失败关闭且诊断脱敏。
+- [x] 压缩响应在完整缓冲前受硬上限，缺失或错误 `Content-Length` 不绕过限制。
+- [x] 单帧压缩、单帧解压和累计解压硬上限均有离线测试。
+- [x] gzip bomb、解压失败、慢速流和中途取消失败关闭且诊断脱敏。
 
 ### 048
 
-- [ ] 残头、长度过长/过短、尾随残片、未知 flags、压缩协商错误和错误 gzip 全部失败关闭。
-- [ ] 缺失/重复/提前/非最终/远端 error 的 EndStream 全部失败关闭。
-- [ ] 正常单帧、多帧、identity/gzip 和成功 EndStream 与 047 组合测试通过。
+- [x] 残头、长度过长/过短、尾随残片、未知 flags、压缩协商错误和错误 gzip 全部失败关闭。
+- [x] 缺失/重复/提前/非最终/远端 error 的 EndStream 全部失败关闭。
+- [x] 正常单帧、多帧、identity/gzip 和成功 EndStream 与 047 组合测试通过。
 
 ### 049
 
-- [ ] start/end 越界、跨度超限、空文件和验证期间变化时不返回候选。
-- [ ] 无尾换行与最后一行范围保持有效；每个返回范围可从同一文件版本读取至少一行。
-- [ ] deny、根外和 symlink escape 路径仍失败关闭，reason/status 不透传远端 prose。
+- [x] start/end 越界、跨度超限、空文件和验证期间变化时不返回候选。
+- [x] 无尾换行与最后一行范围保持有效；每个返回范围可从同一文件版本读取至少一行。
+- [x] deny、根外和 symlink escape 路径仍失败关闭，reason/status 不透传远端 prose。
 
 ### 050
 
-- [ ] 项目与 CLI 版本均为 `0.6.14`，无遗留 `*.new`，dry-run 不提示升级。
-- [ ] Codex inline、channel-only 委派、`provider: codex`、无 `SubagentStart` 与五个刻意删除资产均保持。
-- [ ] 纯准备提交先于且不包含 `scripts/`、`test/`、`package.json`、`README.md`、`SKILL.md`、`references/` 产品契约或发布资产。
+- [x] 项目与 CLI 版本均为 `0.6.14`，无遗留 `*.new`，dry-run 不提示升级。
+- [x] Codex inline、channel-only 委派、`provider: codex`、无 `SubagentStart` 与五个刻意删除资产均保持。
+- [x] 纯准备提交先于且不包含 `scripts/`、`test/`、`package.json`、`README.md`、`SKILL.md`、`references/` 产品契约或发布资产。
 
 ## 完成门槛
 

@@ -16,8 +16,32 @@ tests.
 fast-context-search --project <directory> --query <text>
   [--max-results <1..50>] [--deny <relative-glob> ...]
 
-stdout: { status, search_terms, candidates, truncated }
+stdout: {
+  status: "complete" | "truncated",
+  search_terms: string[],
+  candidates: [{
+    path: string,
+    start_line: integer,
+    end_line: integer,
+    reason: "local_range_validated"
+  }],
+  truncated: boolean,
+  coverage: {
+    visited: { entries, directories, files, matches, outputBytes },
+    continuation: object | null,
+    reasons: string[]
+  }
+}
 stderr: FC_*: fixed local diagnostic
+
+repository-map/tool result: {
+  status: "complete" | "truncated" | "failure",
+  output: string,
+  visited: object,
+  continuation: object | null,
+  reason: string | null,
+  code?: "FC_*"
+}
 ```
 
 `--help` is valid only by itself. `--project` and `--query` occur exactly once.
@@ -32,8 +56,40 @@ arguments.
 - `WINDSURF_API_KEY` is the only credential source. Validate it after argv/root
   validation and before dynamic core import, context construction, DNS, socket,
   request body, or fetch setup.
-- Successful candidates use safe relative paths, positive ranges, and the
-  local `semantic_candidate` reason only. Remote prose and reasons are dropped.
+- One `search()` creates one `ResourceBudget` from a monotonic deadline and the
+  caller's optional `AbortSignal`. Authentication, every network round,
+  repository mapping, directory/glob walking, every `rg` child, up to four
+  commands per round, up to three rounds, and candidate validation consume the
+  same remaining budget. A step never receives a fresh full timeout.
+- Default local limits are 30,000 ms elapsed, 4,096 visited entries, 512 visited
+  directories, depth 16, 2,048 files, 200 matches, 512 KiB local output, 100
+  glob results, 300 tree entries, and 64 KiB per readable file. Units and
+  scopes stay centralized in `path-guard.mjs`/`executor.mjs`.
+- Enumerations and remote tool results use `complete`, `truncated`, and
+  `failure` literally. A truncated no-match result says `(no matches in visited
+  files|paths)` and carries visited/continuation data; it never claims complete
+  `(no matches)`. Public JSON aligns `status` with the `truncated` boolean.
+- `rg` uses an absolute fixed binary, no shell, fixed `--json` argv, explicit
+  PathGuard-approved file operands in batches of at most 128, a minimal
+  environment, shared cancellation, and a 512 KiB stdout ceiling. Abort/timeout
+  sends termination, escalates after a short grace period, and resolves only
+  after the child `close` event.
+- Read HTTP bodies through `Response.body.getReader()` and cap actual compressed
+  bytes at 512 KiB before final concatenation. `Content-Length` may reject early
+  but cannot prove safety. Connect frames cap compressed payload at 256 KiB,
+  decompressed payload at 512 KiB, and cumulative decompressed bytes at 1 MiB.
+- Decode Connect input as exact `1 byte flags + 4 byte big-endian length +
+  payload`. Reserved flags, length mismatch, residual bytes, gzip/encoding
+  mismatch, invalid gzip, missing/duplicate/early/non-final EndStream, data
+  after EndStream, and remote EndStream errors fail closed. Gzip never falls
+  back to raw payload.
+- Successful candidates use PathGuard-approved relative paths and the fixed
+  `local_range_validated` reason. Candidate ranges are positive, ordered,
+  1-based, span at most 200 lines, exist in a non-empty file, and are checked
+  against one opened file version using descriptor/path stat before and after
+  the bounded read. EOF overflow, oversized spans, and changed files are
+  dropped without clamp. Remote prose/reasons are never returned; callers still
+  perform final semantic validation.
 
 ### 4. Validation And Error Matrix
 
@@ -43,27 +99,52 @@ arguments.
 | Absolute, traversal, missing, type-invalid, symlink-escaping path | `FC_PATH_INVALID`, `FC_PATH_UNAVAILABLE`, or `FC_PATH_DENIED` |
 | Metadata, secret, log, generated, or additive-deny path | `FC_PATH_DENIED` |
 | Blank explicit key | `FC_KEY_MISSING` before core import/fetch |
-| Child, transport, malformed protocol, or size failure | Fixed `FC_TOOL_UNAVAILABLE`, `FC_REMOTE_UNAVAILABLE`, `FC_PROTOCOL_INVALID`, or `FC_OUTPUT_LIMIT` without raw detail |
+| Response/child/local output exceeds a byte ceiling | `FC_OUTPUT_LIMIT` without body, stderr, path, or exception text |
+| Connect header, flags, length, compression, or EndStream is invalid | `FC_PROTOCOL_INVALID` without remote error text |
+| Caller abort, shared deadline, or transport failure | `FC_REMOTE_UNAVAILABLE`; active streams/children are cancelled and awaited |
+| Enumeration reaches entries/directories/depth/files/matches/glob/tree limit | Typed `truncated` with fixed local reason, visited counts, and continuation when available |
+| Restricted local command fails without abort/deadline | Typed tool `failure` with a fixed `FC_*` code; final coverage remains incomplete |
+| Candidate start/end exceeds EOF, file is empty, or span exceeds 200 | Drop candidate without clamp or remote prose |
+| Candidate file version changes during validation | Drop candidate; public status is `truncated` with `candidate_changed` |
 
 ### 5. Good, Base, And Bad Cases
 
 - Good: `--project /repo --query "legacy import"` with an explicit process key
-  yields revalidated relative candidates.
-- Base: A guarded repository contains no source files; `rg` returns
-  `(no matches)` and makes no unsafe subprocess call.
+  yields PathGuard/range-validated relative candidates and complete coverage.
+- Base: A guarded repository contains no source files and enumeration completes;
+  `rg` returns typed complete `(no matches)` without an unsafe subprocess call.
+- Base: A wide repository reaches a fixed budget before a match; it returns
+  typed truncated `(no matches in visited files)` with a bounded frontier.
 - Bad: A model asks for `/codebase/.trellis/tasks`, `../secret`, an outside
   symlink, `secrets/config`, or a dash-prefixed `rg` option. The guard or fixed
   argv rejects it without showing a path, child stderr, or secret.
+- Bad: A response declares a short `Content-Length` but streams more than 512
+  KiB, or sends a valid message followed by malformed EndStream data. Actual
+  bytes/state-machine checks reject it.
+- Bad: A candidate claims line 50 in a 10-line file, spans 201 lines, or changes
+  while being read. The candidate is omitted and never clamped.
 
 ### 6. Tests Required
 
 - Parser tests prove rejected arguments do not read environment or import core.
 - Guard tests cover absolute and slash/backslash traversal, symlinks, missing
-  and type mismatch, hard/additive denies, and valid nested paths.
-- Executor tests assert fixed `rg` argv, absolute binary, empty config path,
-  approved file list, and closed child errors.
+  and type mismatch, hard/additive denies, valid nested paths, `**/` at zero and
+  multiple directory levels, 100 glob results, the 513th file, wide/deep walks,
+  and 2,500 empty directories with explicit truncation.
+- Executor tests assert fixed `rg --json` argv, absolute binary, empty config
+  path, approved batched files, typed failures, stdout limits, and that
+  aborted/forced children have closed and no PID remains.
 - Core tests inject synthetic protocol responses and assert key-before-fetch,
-  malformed/oversized response handling, and local candidate projection.
+  streaming byte limits, missing/incorrect `Content-Length`, slow stream/caller
+  cancellation, one decreasing deadline across `4 x 3` commands, typed tool
+  result propagation, and local candidate projection.
+- Protocol tests combine with core tests and cover normal identity/gzip,
+  single/multiple frames, reserved flags, partial headers, short/long lengths,
+  residual bytes, gzip bombs/failures, cumulative decompression, and every
+  missing/duplicate/early/non-final/error EndStream boundary.
+- Candidate tests assert start/end EOF overflow, zero/invalid order, empty file,
+  spans over 200, trailing/no-trailing newline last lines, deny/root/symlink
+  rejection, and deterministic file change during final version comparison.
 - Package/release tests compare exact tarball contents, perform an offline
   lifecycle-disabled install, validate provenance, and assert workflow
   permissions and annotated-tag rules.
@@ -73,19 +154,26 @@ arguments.
 Wrong:
 
 ```js
-const key = await discoverDesktopCredential();
-return fetch(url, { body: buildRequest(key, projectRoot) });
+for (const command of commands) {
+  await run(command, { timeout: 30_000 }); // resets the full timeout
+}
+const body = await response.arrayBuffer(); // buffers before checking length
 ```
 
 Correct:
 
 ```js
-const guard = new PathGuard(project);
-const key = requireApiKey(process.env);
-const result = await search({ query, guard, apiKey: key });
+const budget = new ResourceBudget({ timeoutMs: 30_000, signal: callerSignal });
+const repoMap = await guard.buildRepoMap(budget);
+await runBoundedProcess(rgBinary, fixedArgs, {
+  signal: budget.signal,
+  maxOutputBytes: remainingOutputBytes,
+});
+const bytes = await readBoundedBody(response, MAX_RESPONSE_BYTES, budget.signal);
 ```
 
-Never add an approval file, registration, whitelist, global configuration, or
+Never add a per-step full timeout, synchronous/unbounded walk, raw gzip fallback,
+range clamp, approval file, registration, whitelist, global configuration, or
 credential-discovery fallback to make the external request easier to invoke.
 
 ## Scenario: Tag-Bound npm Publication

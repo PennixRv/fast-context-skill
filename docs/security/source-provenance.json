@@ -77,7 +77,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "ae1e2de38902d055492bacf48345f379c097b10027b749c9f5c961567395c037"
+      "shipped_sha256": "296b2b7fb864af140a28e030a908109c6d637e8bc8c5ae1407e1e5e08c798170"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -102,14 +102,14 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Bounded protocol client with local candidate revalidation.",
-      "shipped_sha256": "8a870674b23b4f5dffd1bc5673b0a5e62db3679af879f3a24cd0ce3d7bc9fd00"
+      "shipped_sha256": "94c0b2f25f86ac1b56a2dff826d0e47ae94a33d3142e7f8b8e8f3d6d05b0ae44"
     },
     {
       "path": "scripts/lib/executor.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Guarded local primitives and fixed ripgrep invocation.",
-      "shipped_sha256": "d2f68f2163a08e9d2cc61f63d1bf39801b656dd5a9152ea999d0081c668fcae6"
+      "shipped_sha256": "59c81efa6ee3a0ee0f3246fdb8bf9f37a400124969116ffc773d2da746983510"
     },
     {
       "path": "scripts/lib/path-guard.mjs",

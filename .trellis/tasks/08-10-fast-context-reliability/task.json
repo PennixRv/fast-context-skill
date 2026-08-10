@@ -26,6 +26,9 @@
     "root_issues": "045,046,047,048,049,050",
     "root_repo": "/home/penn/devel/codex-workflow-optimization",
     "delivery": "independent-component-session",
-    "prep_commit": "a9e0d4e3d83d066e058a7882a182618583886ea8"
+    "prep_commit": "a9e0d4e3d83d066e058a7882a182618583886ea8",
+    "protocol_commit": "bc1ac5e2af25d67623e9b1d7c92a8eb3d43ab32f",
+    "search_commit": "d9b2ba6da097465d3ac7589ecf56f26c17bb251f",
+    "candidate_commit": "f772167c821df5b2c60ecf635e7ca69fb063060c"
   }
 }

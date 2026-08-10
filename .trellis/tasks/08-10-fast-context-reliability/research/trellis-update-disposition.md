@@ -41,4 +41,3 @@
 - `.trellis/.version` 与 `trellis --version` 均为 `0.6.14`。
 - `trellis update --dry-run` 不再提示版本升级；项目定制继续显示 `Modified by you` 是预期状态。
 - `*.new` 数量为 0；安全备份仍存在。
-

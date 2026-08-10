@@ -39,16 +39,16 @@
 
 ## 4. 全量质量门槛与收尾
 
-- [ ] 使用 `trellis-check` 按 prd/spec/跨层数据流复核全部提交。
-- [ ] 使用 `trellis-update-spec` 更新发生变化的安全与 CLI 契约。
-- [ ] 运行 `npm test` 并按 045-050 记录具体测试证据，不只记录总数。
-- [ ] 运行 `npm run verify:provenance`。
-- [ ] 运行 `npm run pack:check`。
-- [ ] 运行 `npm pack --dry-run --json --ignore-scripts` 并核对 allowlist。
-- [ ] 对所有修改的 `.mjs` 运行 `node --check`。
-- [ ] 运行 `python3 ./.trellis/scripts/task.py validate 08-10-fast-context-reliability`。
-- [ ] 运行 `trellis update --dry-run` 与 `git diff --check`。
-- [ ] 按 Trellis 流程归档任务、记录会话并提交收尾记录；不 push、不发布、不修改父仓库。
+- [x] 使用 `trellis-check` 按 prd/spec/跨层数据流复核全部提交。
+- [x] 使用 `trellis-update-spec` 更新发生变化的安全与 CLI 契约。
+- [x] 运行 `npm test` 并按 045-050 记录具体测试证据，不只记录总数。
+- [x] 运行 `npm run verify:provenance`。
+- [x] 运行 `npm run pack:check`。
+- [x] 运行 `npm pack --dry-run --json --ignore-scripts` 并核对 allowlist。
+- [x] 对所有修改的 `.mjs` 运行 `node --check`。
+- [x] 运行 `python3 ./.trellis/scripts/task.py validate 08-10-fast-context-reliability`。
+- [x] 运行 `trellis update --dry-run` 与 `git diff --check`。
+- [ ] 按 Trellis 流程归档任务、记录会话并提交收尾记录；发布仅按第 5 节执行，父仓库保持只读。
 - [ ] 确认最终分支工作区干净并记录 FINAL_HEAD。
 
 ## 5. 补丁版本发布
