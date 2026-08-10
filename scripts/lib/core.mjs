@@ -8,7 +8,7 @@ import {
   extractStrings,
 } from "./protobuf.mjs";
 import { EXECUTOR_LIMITS, ToolExecutor } from "./executor.mjs";
-import { RESOURCE_LIMITS, ResourceBudget } from "./path-guard.mjs";
+import { RESOURCE_BUDGET_ABORT, RESOURCE_LIMITS, ResourceBudget } from "./path-guard.mjs";
 import { FastContextError } from "./public-error.mjs";
 
 const API_BASE = "https://server.self-serve.windsurf.com/exa.api_server_pb.ApiServerService";
@@ -19,15 +19,35 @@ const LANGUAGE_SERVER_VERSION = "1.9544.35";
 const MAX_COMMANDS = EXECUTOR_LIMITS.MAX_COMMANDS;
 const MAX_REQUEST_BYTES = 128 * 1024;
 const MAX_RESPONSE_BYTES = CONNECT_LIMITS.MAX_RESPONSE_COMPRESSED_BYTES;
+const MAX_TOOL_FORMAT_RETRIES = 1;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
-const MAX_TURNS = 3;
+// Three bounded local-tool rounds plus one answer-only protocol turn.
+const MAX_TURNS = 4;
 
 function networkError() {
   return new FastContextError("FC_REMOTE_UNAVAILABLE");
 }
 
+function authError() {
+  return new FastContextError("FC_AUTH_REJECTED");
+}
+
+function timeoutError() {
+  return new FastContextError("FC_REMOTE_TIMEOUT");
+}
+
+function serverError() {
+  return new FastContextError("FC_REMOTE_SERVER_ERROR");
+}
+
 function protocolError() {
   return new FastContextError("FC_PROTOCOL_INVALID");
+}
+
+function retryableToolFormatError() {
+  const error = protocolError();
+  error.retryableToolFormat = true;
+  return error;
 }
 
 function outputLimitError() {
@@ -96,11 +116,35 @@ function buildRequest(apiKey, jwt, messages, toolDefinitions) {
   return request.toBuffer();
 }
 
-function requestSignal(timeoutMs, signal) {
+function requestSignal(timeoutMs, externalSignal) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw networkError();
-  if (signal !== undefined && !(signal instanceof AbortSignal)) throw protocolError();
-  const timeoutSignal = AbortSignal.timeout(Math.max(1, Math.floor(timeoutMs)));
-  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  if (externalSignal !== undefined && !(externalSignal instanceof AbortSignal)) throw protocolError();
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => {
+    if (
+      externalSignal?.reason === RESOURCE_BUDGET_ABORT.DEADLINE
+      || externalSignal?.reason?.name === "TimeoutError"
+    ) {
+      timedOut = true;
+    }
+    controller.abort();
+  };
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, Math.max(1, Math.floor(timeoutMs)));
+  timer.unref?.();
+  if (externalSignal?.aborted) abortFromCaller();
+  else externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  return {
+    signal: controller.signal,
+    failure() { return timedOut ? timeoutError() : networkError(); },
+    dispose() {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", abortFromCaller);
+    },
+  };
 }
 
 function getHeader(headers, name) {
@@ -123,18 +167,18 @@ function validateDeclaredLength(headers, byteLimit) {
   }
 }
 
-async function readChunk(reader, signal) {
-  if (signal.aborted) throw networkError();
+async function readChunk(reader, request) {
+  if (request.signal.aborted) throw request.failure();
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener("abort", onAbort);
+      request.signal.removeEventListener("abort", onAbort);
       callback(value);
     };
-    const onAbort = () => finish(reject, networkError());
-    signal.addEventListener("abort", onAbort, { once: true });
+    const onAbort = () => finish(reject, request.failure());
+    request.signal.addEventListener("abort", onAbort, { once: true });
     reader.read().then(
       (value) => finish(resolve, value),
       () => finish(reject, networkError()),
@@ -150,7 +194,7 @@ async function cancelReader(reader) {
   }
 }
 
-async function readBoundedBody(response, byteLimit, signal) {
+async function readBoundedBody(response, byteLimit, request) {
   const reader = response?.body?.getReader?.();
   if (!reader) throw networkError();
   const body = Buffer.alloc(byteLimit);
@@ -158,7 +202,7 @@ async function readBoundedBody(response, byteLimit, signal) {
 
   try {
     while (true) {
-      const { done, value } = await readChunk(reader, signal);
+      const { done, value } = await readChunk(reader, request);
       if (done) break;
       if (!(value instanceof Uint8Array)) throw protocolError();
       if (value.byteLength === 0) continue;
@@ -186,23 +230,34 @@ async function readBoundedBody(response, byteLimit, signal) {
 
 async function postBinary(fetchImpl, url, body, headers, timeoutMs, externalSignal) {
   if (typeof fetchImpl !== "function") throw networkError();
-  const signal = requestSignal(timeoutMs, externalSignal);
+  const request = requestSignal(timeoutMs, externalSignal);
   let response;
   try {
     response = await fetchImpl(url, {
       method: "POST",
       headers,
       body,
-      signal,
+      signal: request.signal,
     });
   } catch {
-    throw networkError();
+    throw request.failure();
+  } finally {
+    if (!response) request.dispose();
   }
-  if (!response?.ok) throw networkError();
+  try {
+    if (request.signal.aborted) throw request.failure();
+    if (response?.status === 401 || response?.status === 403) throw authError();
+    if (Number.isInteger(response?.status) && response.status >= 500 && response.status <= 599) {
+      throw serverError();
+    }
+    if (!response?.ok) throw networkError();
 
-  validateDeclaredLength(response.headers, MAX_RESPONSE_BYTES);
-  const data = await readBoundedBody(response, MAX_RESPONSE_BYTES, signal);
-  return { data, headers: response.headers };
+    validateDeclaredLength(response.headers, MAX_RESPONSE_BYTES);
+    const data = await readBoundedBody(response, MAX_RESPONSE_BYTES, request);
+    return { data, headers: response.headers };
+  } finally {
+    request.dispose();
+  }
 }
 
 async function fetchJwt(apiKey, fetchImpl, timeoutMs, signal) {
@@ -222,6 +277,7 @@ async function fetchJwt(apiKey, fetchImpl, timeoutMs, signal) {
     `${AUTH_BASE}/GetUserJwt`,
     outer.toBuffer(),
     {
+      "Accept-Encoding": "gzip",
       "Content-Type": "application/proto",
       "Connect-Protocol-Version": "1",
       "User-Agent": "connect-go/1.18.1",
@@ -230,7 +286,7 @@ async function fetchJwt(apiKey, fetchImpl, timeoutMs, signal) {
     signal,
   );
   const jwt = extractStrings(response).find((value) => value.startsWith("eyJ") && value.includes("."));
-  if (!jwt) throw networkError();
+  if (!jwt) throw protocolError();
   return jwt;
 }
 
@@ -310,21 +366,23 @@ function commandSchema(index) {
   };
 }
 
-function toolDefinitions() {
+function toolDefinitions({ allowRestrictedExec = true } = {}) {
   const properties = {};
   for (let index = 1; index <= MAX_COMMANDS; index += 1) {
     properties[`command${index}`] = commandSchema(index);
   }
-  return JSON.stringify([
-    {
+  const definitions = [];
+  if (allowRestrictedExec) {
+    definitions.push({
       type: "function",
       function: {
         name: "restricted_exec",
         description: "Execute only declared filesystem tools in /codebase.",
         parameters: { type: "object", properties, required: ["command1"] },
       },
-    },
-    {
+    });
+  }
+  definitions.push({
       type: "function",
       function: {
         name: "answer",
@@ -335,8 +393,8 @@ function toolDefinitions() {
           required: ["answer"],
         },
       },
-    },
-  ]);
+  });
+  return JSON.stringify(definitions);
 }
 
 function systemPrompt() {
@@ -344,15 +402,19 @@ function systemPrompt() {
     "Return candidate source locations for the requested behavior.",
     "Use restricted_exec only with /codebase paths.",
     "Never request hidden, credential, generated, or repository metadata paths.",
-    "Finish with answer XML containing <file path=\"/codebase/relative\"><range>start-end</range></file>.",
+    "Emit every tool call exactly as [TOOL_CALLS]restricted_exec[ARGS] followed immediately by one JSON object.",
+    "Use at most three restricted_exec calls; the following turn must return answer using the locally verified evidence available.",
+    "Finish exactly as [TOOL_CALLS]answer[ARGS] followed immediately by one JSON object with an answer field.",
+    "Do not add whitespace or prose between [TOOL_CALLS], the tool name, [ARGS], and the JSON object.",
+    "The answer field contains XML with <file path=\"/codebase/relative\"><range>start-end</range></file>.",
   ].join("\n");
 }
 
 function parseToolCall(text) {
   const marker = text.indexOf("[TOOL_CALLS]");
-  if (marker < 0) throw protocolError();
-  const match = text.slice(marker).match(/^\[TOOL_CALLS\](\w+)\[ARGS\](\{[\s\S]*)$/);
-  if (!match) throw protocolError();
+  if (marker < 0) throw retryableToolFormatError();
+  const match = text.slice(marker).match(/^\[TOOL_CALLS\][ \t\r\n]*(\w+)[ \t\r\n]*\[ARGS\][ \t\r\n]*(\{[\s\S]*)$/);
+  if (!match) throw retryableToolFormatError();
   const name = match[1];
   const source = match[2];
   let depth = 0;
@@ -377,16 +439,28 @@ function parseToolCall(text) {
       }
     }
   }
-  if (end < 0) throw protocolError();
+  if (end < 0) throw retryableToolFormatError();
   const json = source.slice(0, end);
   if (Buffer.byteLength(json, "utf8") > MAX_TOOL_ARGS_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
   let args;
   try {
     args = JSON.parse(json);
   } catch {
-    throw protocolError();
+    throw retryableToolFormatError();
   }
   return { name, args };
+}
+
+async function requestToolCall(request, fetchImpl, timeoutMs, signal) {
+  for (let attempt = 0; attempt <= MAX_TOOL_FORMAT_RETRIES; attempt += 1) {
+    try {
+      const response = await streamingRequest(request, fetchImpl, timeoutMs, signal);
+      return parseResponse(response);
+    } catch (error) {
+      if (!error?.retryableToolFormat || attempt >= MAX_TOOL_FORMAT_RETRIES) throw error;
+    }
+  }
+  throw protocolError();
 }
 
 function parseResponse(response) {
@@ -529,15 +603,20 @@ export async function search({
     const definitions = toolDefinitions();
 
     for (let turn = 0; turn < MAX_TURNS; turn += 1) {
-      const request = buildRequest(apiKey, jwt, messages, definitions);
+      const finalTurn = turn === MAX_TURNS - 1;
+      const request = buildRequest(
+        apiKey,
+        jwt,
+        messages,
+        finalTurn ? toolDefinitions({ allowRestrictedExec: false }) : definitions,
+      );
       if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
-      const response = await streamingRequest(
+      const toolCall = await requestToolCall(
         request,
         fetchImpl,
         budget.remainingMs(),
         budget.signal,
       );
-      const toolCall = parseResponse(response);
 
       if (toolCall.name === "answer") {
         return await parseAnswer(
@@ -550,7 +629,7 @@ export async function search({
           executor,
         );
       }
-      if (toolCall.name !== "restricted_exec") throw protocolError();
+      if (toolCall.name !== "restricted_exec" || finalTurn) throw protocolError();
 
       const toolResults = await executor.execToolCall(toolCall.args);
       const toolCallId = randomUUID();
@@ -590,6 +669,7 @@ export const CORE_LIMITS = Object.freeze({
   MAX_COMMANDS,
   MAX_REQUEST_BYTES,
   MAX_RESPONSE_BYTES,
+  MAX_TOOL_FORMAT_RETRIES,
   MAX_TOOL_ARGS_BYTES,
   MAX_TURNS,
 });

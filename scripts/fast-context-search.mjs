@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 import { PathGuard } from "./lib/path-guard.mjs";
+import { resolveCredential } from "./lib/credentials.mjs";
 import { FastContextError, publicDiagnostic } from "./lib/public-error.mjs";
 
 const MAX_QUERY_LENGTH = 2000;
 const MAX_RESULTS = 50;
 
 const USAGE = `Usage:
-  fast-context-search --project <directory> --query <text> [--max-results <n>] [--deny <relative-glob> ...]
+  fast-context-search --project <directory> --query <text> [--max-results <n>] [--deny <relative-glob> ...] [--no-external]
   fast-context-search --help`;
 
 function cliError(code) {
@@ -37,6 +38,7 @@ export function parseArgs(argv) {
     query: null,
     maxResults: 10,
     deny: [],
+    noExternal: false,
   };
   const seen = new Set();
 
@@ -62,6 +64,12 @@ export function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (argument === "--no-external") {
+      if (seen.has(argument)) throw cliError("FC_ARG_DUPLICATE");
+      seen.add(argument);
+      options.noExternal = true;
+      continue;
+    }
     throw cliError("FC_ARG_UNKNOWN");
   }
 
@@ -69,14 +77,6 @@ export function parseArgs(argv) {
   if (!options.query) throw cliError("FC_QUERY_REQUIRED");
   if (options.query.length > MAX_QUERY_LENGTH) throw cliError("FC_OUTPUT_LIMIT");
   return options;
-}
-
-function requireApiKey(environment) {
-  const value = environment?.WINDSURF_API_KEY;
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw cliError("FC_KEY_MISSING");
-  }
-  return value;
 }
 
 function errorStatus(error) {
@@ -95,6 +95,7 @@ export async function runCli({
   stdout = process.stdout,
   stderr = process.stderr,
   loadCore = () => import("./lib/core.mjs"),
+  resolveApiKey = resolveCredential,
 } = {}) {
   try {
     const options = parseArgs(argv || []);
@@ -104,12 +105,14 @@ export async function runCli({
     }
 
     const guard = new PathGuard(options.project, options.deny);
-    const apiKey = requireApiKey(environment);
+    if (options.noExternal) throw cliError("FC_EXTERNAL_DISABLED");
+    const credential = await resolveApiKey({ environment });
+    if (!credential) throw cliError("FC_KEY_MISSING");
     const { search } = await loadCore();
     const result = await search({
       query: options.query,
       guard,
-      apiKey,
+      apiKey: credential.apiKey,
       maxResults: options.maxResults,
     });
     stdout.write(`${JSON.stringify(result)}\n`);

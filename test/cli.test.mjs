@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { parseArgs, runCli } from "../scripts/fast-context-search.mjs";
+import { FastContextError } from "../scripts/lib/public-error.mjs";
 
 function stream() {
   let value = "";
@@ -18,6 +19,14 @@ test("CLI accepts only the finite argument grammar", () => {
       query: "find this",
       maxResults: 3,
       deny: ["src/private/*"],
+      noExternal: false,
+    });
+    assert.deepEqual(parseArgs(["--project", root, "--query", "find this", "--no-external"]), {
+      project: root,
+      query: "find this",
+      maxResults: 10,
+      deny: [],
+      noExternal: true,
     });
     assert.deepEqual(parseArgs(["--help"]), { help: true });
     for (const args of [
@@ -27,6 +36,7 @@ test("CLI accepts only the finite argument grammar", () => {
       ["--project", root, "--query", "q", "--project-path", root],
       ["--project", root, "--query", "q", "-p", root],
       ["--project", root, "--query", "q", "--print-key"],
+      ["--project", root, "--query", "q", "--no-external", "--no-external"],
       ["--project", root, "--query", "q", "positional"],
       ["--project", root, "--query"],
     ]) {
@@ -37,7 +47,7 @@ test("CLI accepts only the finite argument grammar", () => {
   }
 });
 
-test("CLI rejects missing key before core import or request setup", async () => {
+test("CLI rejects missing credentials before core import or request setup", async () => {
   const root = mkdtempSync(join(tmpdir(), "fast-context-cli-"));
   let loaded = false;
   let keyRead = false;
@@ -54,12 +64,43 @@ test("CLI rejects missing key before core import or request setup", async () => 
       stdout,
       stderr,
       loadCore: async () => { loaded = true; return {}; },
+      resolveApiKey: async ({ environment: candidateEnvironment }) => {
+        assert.equal(candidateEnvironment, environment);
+        assert.equal(candidateEnvironment.WINDSURF_API_KEY, "");
+        return null;
+      },
     });
     assert.equal(status, 1);
     assert.equal(loaded, false);
     assert.equal(keyRead, true);
     assert.match(stderr.value(), /^FC_KEY_MISSING: WINDSURF_API_KEY is required\n$/);
     assert.equal(stdout.value(), "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI explicit disable avoids environment access, credential discovery, and core import", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fast-context-cli-"));
+  let resolved = false;
+  let loaded = false;
+  const environment = {};
+  Object.defineProperty(environment, "WINDSURF_API_KEY", {
+    get() { throw new Error("environment must not be read"); },
+  });
+  const stderr = stream();
+  try {
+    const status = await runCli({
+      argv: ["--project", root, "--query", "q", "--no-external"],
+      environment,
+      stderr,
+      resolveApiKey: async () => { resolved = true; return null; },
+      loadCore: async () => { loaded = true; return {}; },
+    });
+    assert.equal(status, 1);
+    assert.equal(resolved, false);
+    assert.equal(loaded, false);
+    assert.equal(stderr.value(), "FC_EXTERNAL_DISABLED: external search is disabled by the caller\n");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -91,6 +132,7 @@ test("CLI redacts remote and parser sentinels from public diagnostics", async ()
       environment: { WINDSURF_API_KEY: "synthetic-key-not-a-real-credential" },
       stdout,
       stderr,
+      resolveApiKey: async () => ({ apiKey: "synthetic-key-not-a-real-credential", source: "environment" }),
       loadCore: async () => ({
         async search() { throw new Error("REMOTE_RESPONSE_SENTINEL synthetic-key-not-a-real-credential"); },
       }),
@@ -99,6 +141,27 @@ test("CLI redacts remote and parser sentinels from public diagnostics", async ()
     assert.equal(stdout.value(), "");
     assert.match(stderr.value(), /^FC_REMOTE_UNAVAILABLE:/);
     assert.doesNotMatch(stderr.value(), /SENTINEL|synthetic-key/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI preserves stable remote categories without exposing a synthetic credential", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fast-context-cli-"));
+  try {
+    for (const code of ["FC_AUTH_REJECTED", "FC_REMOTE_TIMEOUT", "FC_REMOTE_SERVER_ERROR", "FC_PROTOCOL_INVALID"]) {
+      const stderr = stream();
+      const status = await runCli({
+        argv: ["--project", root, "--query", "q"],
+        environment: { WINDSURF_API_KEY: "synthetic-key-not-a-real-credential" },
+        stderr,
+        resolveApiKey: async () => ({ apiKey: "synthetic-key-not-a-real-credential", source: "environment" }),
+        loadCore: async () => ({ async search() { throw new FastContextError(code); } }),
+      });
+      assert.equal(status, 1);
+      assert.match(stderr.value(), new RegExp(`^${code}: `));
+      assert.doesNotMatch(stderr.value(), /synthetic-key|REMOTE_BODY_SENTINEL|Authorization|request-id/i);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

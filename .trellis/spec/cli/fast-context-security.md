@@ -14,7 +14,7 @@ tests.
 
 ```text
 fast-context-search --project <directory> --query <text>
-  [--max-results <1..50>] [--deny <relative-glob> ...]
+  [--max-results <1..50>] [--deny <relative-glob> ...] [--no-external]
 
 stdout: {
   status: "complete" | "truncated",
@@ -45,17 +45,29 @@ repository-map/tool result: {
 ```
 
 `--help` is valid only by itself. `--project` and `--query` occur exactly once.
-There are no aliases, key commands, cwd defaults, tuning flags, or positional
-arguments.
+There are no aliases, key commands, cwd defaults, tuning flags other than the
+explicit opt-out `--no-external`, or positional arguments.
 
 ### 3. Contracts
 
 - Canonicalize the existing project root once in `PathGuard`.
 - Pass every `rg`, read, listing, tree, glob, repository-map, and candidate
   path through the same guard before touching the filesystem.
-- `WINDSURF_API_KEY` is the only credential source. Validate it after argv/root
-  validation and before dynamic core import, context construction, DNS, socket,
-  request body, or fetch setup.
+- After argv/root validation and before dynamic core import, context
+  construction, DNS, socket, request body, or fetch setup, credentials are
+  resolved in this exact order: non-empty explicit `WINDSURF_API_KEY`; then,
+  only on Linux/WSL, the current user's fixed
+  `~/.local/share/devin/credentials.toml`; otherwise `FC_KEY_MISSING`.
+  `--no-external` occurs before all credential access and instead returns
+  `FC_EXTERNAL_DISABLED`.
+- Devin discovery runs only in a package-owned Node child with no shell, a
+  minimal environment, a 1,000 ms deadline, a 16 KiB stdout/file ceiling, one
+  fixed path, ordinary-file/non-symlink checks, exact allowed TOML fields, and
+  supported `devin-session-token$`, `devin-`, or `sk-` forms. The private pipe
+  carries at most one accepted value into current-process memory. No path,
+  value, child stderr, field name, or discovery failure becomes public output.
+  Never scan desktop `state.vscdb`, enumerate alternate credentials paths,
+  accept caller-provided credential files, or write shell configuration.
 - One `search()` creates one `ResourceBudget` from a monotonic deadline and the
   caller's optional `AbortSignal`. Authentication, every network round,
   repository mapping, directory/glob walking, every `rg` child, up to four
@@ -83,6 +95,17 @@ arguments.
   mismatch, invalid gzip, missing/duplicate/early/non-final EndStream, data
   after EndStream, and remote EndStream errors fail closed. Gzip never falls
   back to raw payload.
+- After a valid Connect payload, tool tags may contain only formatting
+  whitespace between `[TOOL_CALLS]`, the fixed word-form tool name, `[ARGS]`,
+  and the JSON object. The JSON object itself must still be complete and
+  parseable; never repair JSON, infer a tool name, or treat remote prose as a
+  local command/result.
+- A valid Connect response whose tool tag/JSON is locally invalid may repeat
+  the exact streaming request once, using the same `ResourceBudget` remaining
+  time. Connect framing/compression/EndStream failures, remote EndStream
+  errors, output ceilings, transport failures, and a second invalid tool tag
+  fail immediately with their existing fixed code. The retry never forwards or
+  records remote prose.
 - Successful candidates use PathGuard-approved relative paths and the fixed
   `local_range_validated` reason. Candidate ranges are positive, ordered,
   1-based, span at most 200 lines, exist in a non-empty file, and are checked
@@ -98,10 +121,14 @@ arguments.
 | Missing/repeated project or query | Fixed `FC_PROJECT_*`, `FC_QUERY_REQUIRED`, or `FC_ARG_*` diagnostic |
 | Absolute, traversal, missing, type-invalid, symlink-escaping path | `FC_PATH_INVALID`, `FC_PATH_UNAVAILABLE`, or `FC_PATH_DENIED` |
 | Metadata, secret, log, generated, or additive-deny path | `FC_PATH_DENIED` |
-| Blank explicit key | `FC_KEY_MISSING` before core import/fetch |
+| Blank explicit key and no accepted Linux/WSL Devin credential | `FC_KEY_MISSING` before core import/fetch |
+| `--no-external` | `FC_EXTERNAL_DISABLED` without environment read, helper, core import, or network request |
+| HTTP `401` or `403` | `FC_AUTH_REJECTED` without response body, headers, request ID, or credential detail |
+| HTTP `5xx` | `FC_REMOTE_SERVER_ERROR` without response body, headers, request ID, or credential detail |
 | Response/child/local output exceeds a byte ceiling | `FC_OUTPUT_LIMIT` without body, stderr, path, or exception text |
 | Connect header, flags, length, compression, or EndStream is invalid | `FC_PROTOCOL_INVALID` without remote error text |
-| Caller abort, shared deadline, or transport failure | `FC_REMOTE_UNAVAILABLE`; active streams/children are cancelled and awaited |
+| Shared deadline or timeout signal | `FC_REMOTE_TIMEOUT`; active streams/children are cancelled and awaited |
+| Caller abort or transport failure | `FC_REMOTE_UNAVAILABLE`; active streams/children are cancelled and awaited |
 | Enumeration reaches entries/directories/depth/files/matches/glob/tree limit | Typed `truncated` with fixed local reason, visited counts, and continuation when available |
 | Restricted local command fails without abort/deadline | Typed tool `failure` with a fixed `FC_*` code; final coverage remains incomplete |
 | Candidate start/end exceeds EOF, file is empty, or span exceeds 200 | Drop candidate without clamp or remote prose |
@@ -110,7 +137,10 @@ arguments.
 ### 5. Good, Base, And Bad Cases
 
 - Good: `--project /repo --query "legacy import"` with an explicit process key
-  yields PathGuard/range-validated relative candidates and complete coverage.
+  or a current Linux/WSL Devin CLI login yields PathGuard/range-validated
+  relative candidates and complete coverage.
+- Base: `--no-external` returns only `FC_EXTERNAL_DISABLED` and never inspects
+  a process key, starts a credential helper, imports the core, or opens a socket.
 - Base: A guarded repository contains no source files and enumeration completes;
   `rg` returns typed complete `(no matches)` without an unsafe subprocess call.
 - Base: A wide repository reaches a fixed budget before a match; it returns
@@ -121,12 +151,19 @@ arguments.
 - Bad: A response declares a short `Content-Length` but streams more than 512
   KiB, or sends a valid message followed by malformed EndStream data. Actual
   bytes/state-machine checks reject it.
+- Bad: A `401`, `403`, `5xx`, credential helper failure, or malformed JWT leaks
+  a response body, a credential field/path, child stderr, request ID, or raw
+  exception. Map it to the fixed public code instead.
 - Bad: A candidate claims line 50 in a 10-line file, spans 201 lines, or changes
   while being read. The candidate is omitted and never clamped.
 
 ### 6. Tests Required
 
-- Parser tests prove rejected arguments do not read environment or import core.
+- Parser/credential tests prove rejected arguments do not read environment or
+  import core; explicit keys win; Linux fixtures accept only the fixed Devin
+  file and supported values; unknown fields, invalid values, symlinks, child
+  failures, and non-Linux discovery fail closed; `--no-external` starts neither
+  resolver nor core.
 - Guard tests cover absolute and slash/backslash traversal, symlinks, missing
   and type mismatch, hard/additive denies, valid nested paths, `**/` at zero and
   multiple directory levels, 100 glob results, the 513th file, wide/deep walks,
@@ -135,9 +172,14 @@ arguments.
   path, approved batched files, typed failures, stdout limits, and that
   aborted/forced children have closed and no PID remains.
 - Core tests inject synthetic protocol responses and assert key-before-fetch,
-  streaming byte limits, missing/incorrect `Content-Length`, slow stream/caller
-  cancellation, one decreasing deadline across `4 x 3` commands, typed tool
-  result propagation, and local candidate projection.
+  `401/403` authentication, transport, deadline timeout, `5xx`, malformed JWT
+  and Connect categories, streaming byte limits, missing/incorrect
+  `Content-Length`, slow stream/caller cancellation, one decreasing deadline
+  across `4 x 3` commands, typed tool result propagation, and local candidate
+  projection.
+- Core tests prove one valid-envelope malformed tool payload gets exactly one
+  same-budget retry, while malformed Connect envelopes and remote EndStream
+  errors remain terminal failures.
 - Protocol tests combine with core tests and cover normal identity/gzip,
   single/multiple frames, reserved flags, partial headers, short/long lengths,
   residual bytes, gzip bombs/failures, cumulative decompression, and every
@@ -173,8 +215,9 @@ const bytes = await readBoundedBody(response, MAX_RESPONSE_BYTES, budget.signal)
 ```
 
 Never add a per-step full timeout, synchronous/unbounded walk, raw gzip fallback,
-range clamp, approval file, registration, whitelist, global configuration, or
-credential-discovery fallback to make the external request easier to invoke.
+range clamp, approval file, registration, whitelist, global configuration,
+desktop-state credential scan, alternate credential path, or caller-provided
+credential file to make the external request easier to invoke.
 
 ## Scenario: Tag-Bound npm Publication
 
@@ -306,3 +349,15 @@ Correct:
 ```yaml
 - run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
 ```
+
+## Remote Tool Completion Bound
+
+The bounded search protocol has three local-tool turns and one terminal
+answer-only request. `restricted_exec` remains available only in the first
+three turns, with the existing shared resource budget and PathGuard checks.
+The terminal request advertises only `answer`; a remote `restricted_exec` or
+other tool response in that turn is `FC_PROTOCOL_INVALID`. This preserves the
+three-round local execution cap while giving the remote protocol a deterministic
+opportunity to return locally range-validated candidates. Tests must assert the
+terminal tool definition excludes `restricted_exec`, the final request shares a
+decreasing deadline, and an invalid terminal tool remains failure-closed.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.4",
+  "package": "@pennixrv/fast-context-skill@0.1.5",
   "baseline": {
     "repository": "https://github.com/PennixRv/fast-context-skill",
     "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"
@@ -17,6 +17,8 @@
     "scripts/fast-context-search.mjs",
     "scripts/lib/LICENSE.fast-context-mcp",
     "scripts/lib/core.mjs",
+    "scripts/lib/credentials.mjs",
+    "scripts/lib/devin-credential-helper.mjs",
     "scripts/lib/executor.mjs",
     "scripts/lib/path-guard.mjs",
     "scripts/lib/protobuf.mjs",
@@ -42,14 +44,14 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Local-first operating and security documentation.",
-      "shipped_sha256": "beeb60572c8dc62da80459b1862c0fcf1ceaad82000a7eb50d7482482fabb27e"
+      "shipped_sha256": "426930073071c5b18f38c65ba1bf45cf12fc65ca7cffc353639056ee2f21d7be"
     },
     {
       "path": "SKILL.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Automatic local-first and CodeGraph-gated routing without approval state.",
-      "shipped_sha256": "c638c283c6bead62c238a92dd40e5435245395643e744c54cda49e145daa0144"
+      "shipped_sha256": "68a11c87105cab5943df0032998e5f7b2a0e04fff17fb48cdcee980033aa9cf8"
     },
     {
       "path": "agents/openai.yaml",
@@ -62,29 +64,29 @@
       "path": "package.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Fork repository identity and exact individual-file allowlist.",
-      "shipped_sha256": "e0b8820bcfefd55680c78888cafe61b6a44fb001a33dedee7405216d21ea57a8"
+      "change_summary": "Patch release identity and exact individual-file runtime allowlist.",
+      "shipped_sha256": "a392041d39fd204133efacd7cfdcc8782737c3bb4c7c105eac6d67c5d15e1965"
     },
     {
       "path": "references/script-contract.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI and redacted output contract.",
-      "shipped_sha256": "183b1f9146b4e114831d47c629f1de87bcdaeb606272c6cd7bc8799cb5262bda"
+      "change_summary": "Finite CLI, controlled credential-source, and redacted error contract.",
+      "shipped_sha256": "52e609b8c3bf3de9d824f78b773c7cdd7e6193491bdafa73687a4e8f8bf6d157"
     },
     {
       "path": "references/source-provenance.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "8c43087932265fb29bcd47e534174b0f9073dfc18477b1762df96bbd534c5d14"
+      "shipped_sha256": "c7153383bae6e4795a1fb780f96dd10fe6bddc0454d4a6c174376638d9d19ada"
     },
     {
       "path": "scripts/fast-context-search.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI parser and pre-network explicit-key boundary.",
-      "shipped_sha256": "3626b1718db131eda4e5d31dadcc6195f3abe865bf49e4f227f6974c7246db89"
+      "change_summary": "Finite CLI parser, explicit opt-out, and pre-network credential boundary.",
+      "shipped_sha256": "0235c4a7b227a300bcf9ee381e822c3f858934b649837be2009d39a0e780a0bb"
     },
     {
       "path": "scripts/lib/LICENSE.fast-context-mcp",
@@ -101,8 +103,22 @@
       "path": "scripts/lib/core.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Bounded protocol client with local candidate revalidation.",
-      "shipped_sha256": "94c0b2f25f86ac1b56a2dff826d0e47ae94a33d3142e7f8b8e8f3d6d05b0ae44"
+      "change_summary": "Bounded protocol client with local candidate revalidation and closed remote status categories.",
+      "shipped_sha256": "c7ba24325cf22e44567bb0361ac2252b459fef2edbcbd2ec5fa5836c1ff00480"
+    },
+    {
+      "path": "scripts/lib/credentials.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Explicit-first Linux/WSL Devin credential selection through a bounded private helper pipe.",
+      "shipped_sha256": "d21cec35688727272340ddc30875bc982f4914843e76d947951e4256fd1a931d"
+    },
+    {
+      "path": "scripts/lib/devin-credential-helper.mjs",
+      "classification": "fork_owned",
+      "owner": "pennixrv",
+      "change_summary": "Fixed-path Devin TOML reader with non-symlink, size, field, and token-form checks; no diagnostics.",
+      "shipped_sha256": "803ef84423c90b78f6c6a7ad410a2a8f2d5fd417ec2fac1d3654b770d99d3301"
     },
     {
       "path": "scripts/lib/executor.mjs",
@@ -115,8 +131,8 @@
       "path": "scripts/lib/path-guard.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Canonical containment, immutable deny set, and bounded walking.",
-      "shipped_sha256": "c1de622b6c92bf1b415efb5d788a6327dd92836d4f3cb28e91f95999f7d4c98f"
+      "change_summary": "Canonical containment, immutable deny set, bounded walking, and internal deadline provenance.",
+      "shipped_sha256": "70fc74745932957e5629e96fadb9b1d0f50a560e1c5fe66e819513950398ffeb"
     },
     {
       "path": "scripts/lib/protobuf.mjs",
@@ -130,7 +146,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Closed public diagnostic map for redacted failures.",
-      "shipped_sha256": "0b68f06fd96bea52f805362515e60ad0a82315af45ce793a26b686a3837fc552"
+      "shipped_sha256": "417900eb1ad877cc39f045e63115bc6166924c5dabf55d250e93d742d162168d"
     }
   ]
 }

@@ -6,8 +6,8 @@ path; this helper is for genuinely unknown locations or vague legacy behavior.
 
 ## Use
 
-Set a key explicitly for the current process, then pass an existing project
-directory:
+Pass an existing project directory. An explicit key remains supported for the
+current process:
 
 ```bash
 WINDSURF_API_KEY='provided-out-of-band' \
@@ -16,10 +16,23 @@ WINDSURF_API_KEY='provided-out-of-band' \
   --query "Where is the legacy import flow implemented?"
 ```
 
+On Linux/WSL, when the current user has already completed Devin CLI login, the
+same command may omit `WINDSURF_API_KEY`. The runtime then starts a bounded,
+no-shell helper that reads only the fixed Devin CLI credentials file for that
+user. It rejects symbolic links, oversized files, unknown fields and unsupported
+formats, does not scan desktop state databases, and never exposes the token in
+arguments, output, logs, or persistent state. Explicit `WINDSURF_API_KEY`
+always has priority.
+
 The accepted options are `--project`, `--query`, bounded `--max-results`,
-repeatable relative `--deny`, and standalone `--help`. The CLI never discovers,
-prints, stores, or logs credentials. It rejects metadata, secrets, generated
-output, and paths outside the canonical project root before any remote request.
+repeatable relative `--deny`, standalone `--no-external`, and standalone
+`--help`. `--no-external` exits with `FC_EXTERNAL_DISABLED` before inspecting
+credentials, importing the remote core, or opening a network request. Missing
+credentials produce `FC_KEY_MISSING`; `401/403`, timeout, transport, `5xx`,
+and malformed protocol responses use distinct fixed `FC_*` diagnostics. The
+CLI never prints, stores, or logs credentials. It rejects metadata, secrets,
+generated output, and paths outside the canonical project root before any
+remote request.
 
 Use the returned paths only as hints and verify them with local tools. A single
 JSON result is emitted on stdout; fixed `FC_*` diagnostics are emitted on

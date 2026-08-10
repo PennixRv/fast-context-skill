@@ -10,13 +10,14 @@ import {
   CONNECT_LIMITS,
   ProtobufEncoder,
   connectFrameEncode,
+  extractStrings,
 } from "../scripts/lib/protobuf.mjs";
 
 const syntheticKey = "synthetic-key-not-a-real-credential";
 
 function response(body, options = {}) {
   return new Response(body, {
-    status: options.ok === false ? 503 : 200,
+    status: options.status ?? (options.ok === false ? 503 : 200),
     headers: options.headers,
   });
 }
@@ -94,6 +95,12 @@ function answerFrame(answer = '<file path="/codebase/src/candidate.mjs"><range>1
   );
 }
 
+function whitespaceAnswerFrame(answer = '<file path="/codebase/src/candidate.mjs"><range>1-1</range></file>') {
+  return protoString(
+    `[TOOL_CALLS] answer [ARGS] ${JSON.stringify({ answer })}`,
+  );
+}
+
 function restrictedExecFrame(commands) {
   return protoString(`[TOOL_CALLS]restricted_exec[ARGS]${JSON.stringify(commands)}`);
 }
@@ -137,7 +144,12 @@ test("search uses injected protocol streams and locally revalidates candidates",
     assert.deepEqual(result.coverage.reasons, []);
     assert.ok(result.coverage.visited.entries >= 2);
     assert.equal(calls.length, 2);
+    assert.equal(calls[0].options.headers["Accept-Encoding"], "gzip");
     assert.match(calls[0].options.body.toString("utf8"), /synthetic-key/);
+    const prompt = extractStrings(decodeRequestFrame(calls[1].options.body)).find((value) => value.includes("[TOOL_CALLS]"));
+    assert.match(prompt, /\[TOOL_CALLS\]restricted_exec\[ARGS\]/);
+    assert.match(prompt, /at most three restricted_exec calls; the following turn must return answer/);
+    assert.match(prompt, /\[TOOL_CALLS\]answer\[ARGS\]/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -152,6 +164,110 @@ test("missing key fails before fetch setup", async () => {
       { code: "FC_KEY_MISSING" },
     );
     assert.equal(fetchCalls, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("format-only whitespace around remote tool tags retains strict JSON and local range validation", async () => {
+  const root = fixture();
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => url.includes("GetUserJwt")
+        ? response(protoString("eyJ.synthetic.jwt"))
+        : response(connectResponse([whitespaceAnswerFrame()]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        }),
+    });
+    assert.deepEqual(result.candidates, [{
+      path: "src/candidate.mjs",
+      start_line: 1,
+      end_line: 1,
+      reason: "local_range_validated",
+    }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("one malformed remote tool envelope retries within the shared request budget", async () => {
+  const root = fixture();
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        streamCalls += 1;
+        return response(connectResponse([
+          streamCalls === 1 ? protoString("[TOOL_CALLS] answer [ARGS] not-json") : whitespaceAnswerFrame(),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.deepEqual(result.candidates, [{
+      path: "src/candidate.mjs",
+      start_line: 1,
+      end_line: 1,
+      reason: "local_range_validated",
+    }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("HTTP authentication, server, and transport failures use distinct fixed categories without reading error bodies", async () => {
+  const root = fixture();
+  try {
+    for (const [status, code] of [[401, "FC_AUTH_REJECTED"], [403, "FC_AUTH_REJECTED"], [503, "FC_REMOTE_SERVER_ERROR"]]) {
+      let readerRequested = false;
+      await assert.rejects(
+        search({
+          query: "query",
+          guard: new PathGuard(root),
+          apiKey: syntheticKey,
+          fetchImpl: async () => ({
+            ok: false,
+            status,
+            headers: new Headers(),
+            body: { getReader() { readerRequested = true; throw new Error("REMOTE_BODY_SENTINEL"); } },
+          }),
+        }),
+        { code },
+      );
+      assert.equal(readerRequested, false);
+    }
+    await assert.rejects(
+      search({
+        query: "query",
+        guard: new PathGuard(root),
+        apiKey: syntheticKey,
+        fetchImpl: async () => { throw new Error("REMOTE_BODY_SENTINEL"); },
+      }),
+      { code: "FC_REMOTE_UNAVAILABLE" },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a successful authentication response without a JWT is a protocol error", async () => {
+  const root = fixture();
+  try {
+    await assert.rejects(
+      search({
+        query: "query",
+        guard: new PathGuard(root),
+        apiKey: syntheticKey,
+        fetchImpl: async () => response(protoString("not-a-jwt")),
+      }),
+      { code: "FC_PROTOCOL_INVALID" },
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -272,7 +388,7 @@ test("gzip expansion beyond the per-frame limit stays an output error", async ()
   }
 });
 
-test("slow response streams converge on timeout and cancel the reader", async () => {
+test("slow response streams converge on a dedicated timeout category and cancel the reader", async () => {
   const root = fixture();
   const streamed = streamedResponse([], { stall: true });
   const started = performance.now();
@@ -287,7 +403,7 @@ test("slow response streams converge on timeout and cancel the reader", async ()
           ? response(protoString("eyJ.synthetic.jwt"))
           : streamed.value,
       }),
-      { code: "FC_REMOTE_UNAVAILABLE" },
+      { code: "FC_REMOTE_TIMEOUT" },
     );
     assert.equal(streamed.state.cancelled, true);
     assert.ok(performance.now() - started < 500);
@@ -473,7 +589,38 @@ test("typed local tool results are carried into the next protocol request", asyn
   }
 });
 
-test("four commands across three rounds consume one decreasing deadline", async () => {
+test("the final protocol turn declares answer only after three bounded local-tool rounds", async () => {
+  const root = fixture();
+  const requestFrames = [];
+  let streamCall = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        requestFrames.push(decodeRequestFrame(options.body));
+        streamCall += 1;
+        return response(connectResponse([
+          streamCall <= 3
+            ? restrictedExecFrame({ command1: { type: "tree", path: "/codebase", levels: 1 } })
+            : answerFrame(),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(result.status, "complete");
+    assert.equal(requestFrames.length, 4);
+    const terminalDefinitions = extractStrings(requestFrames[3])
+      .find((value) => value.includes('"type":"function"') && value.includes('"name":"answer"'));
+    assert.ok(terminalDefinitions);
+    assert.equal(terminalDefinitions.includes('restricted_exec'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("three four-command local-tool rounds and the answer-only turn consume one decreasing deadline", async () => {
   let now = 0;
   let streamCalls = 0;
   let toolCalls = 0;
@@ -528,11 +675,12 @@ test("four commands across three rounds consume one decreasing deadline", async 
     }),
     { code: "FC_PROTOCOL_INVALID" },
   );
-  assert.equal(streamCalls, 3);
+  assert.equal(streamCalls, 4);
   assert.equal(toolCalls, 12);
-  assert.equal(observedTimeouts.length, 3);
+  assert.equal(observedTimeouts.length, 4);
   assert.ok(observedTimeouts[0] > observedTimeouts[1]);
   assert.ok(observedTimeouts[1] > observedTimeouts[2]);
+  assert.ok(observedTimeouts[2] > observedTimeouts[3]);
   assert.ok(performance.now() - started < 500);
 });
 

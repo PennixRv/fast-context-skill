@@ -128,6 +128,10 @@ export const RESOURCE_LIMITS = Object.freeze({
   MAX_OUTPUT_BYTES,
 });
 
+export const RESOURCE_BUDGET_ABORT = Object.freeze({
+  DEADLINE: "fast-context-resource-deadline",
+});
+
 export class ResourceBudget {
   /**
    * @param {{
@@ -161,21 +165,21 @@ export class ResourceBudget {
     this.controller = new AbortController();
     this.signal = this.controller.signal;
     this.externalSignal = options.signal;
-    this.onExternalAbort = () => this.controller.abort();
+    this.onExternalAbort = () => this.controller.abort(this.externalSignal?.reason);
     if (this.externalSignal) {
       if (typeof this.externalSignal.addEventListener !== "function") {
         throw pathError("FC_PROTOCOL_INVALID");
       }
-      if (this.externalSignal.aborted) this.controller.abort();
+      if (this.externalSignal.aborted) this.controller.abort(this.externalSignal.reason);
       else this.externalSignal.addEventListener("abort", this.onExternalAbort, { once: true });
     }
-    this.timer = setTimeout(() => this.controller.abort(), elapsedLimit);
+    this.timer = setTimeout(() => this.controller.abort(RESOURCE_BUDGET_ABORT.DEADLINE), elapsedLimit);
     this.timer.unref?.();
   }
 
   assertActive() {
     if (this.signal.aborted || this.now() >= this.deadline) {
-      this.controller.abort();
+      if (this.now() >= this.deadline) this.controller.abort(RESOURCE_BUDGET_ABORT.DEADLINE);
       throw pathError("FC_REMOTE_UNAVAILABLE");
     }
   }

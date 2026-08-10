@@ -1,0 +1,30 @@
+{
+  "id": "fast-context-credentials",
+  "name": "fast-context-credentials",
+  "title": "Harden Fast Context credential discovery and remote error semantics",
+  "description": "收敛根仓库 Issue 056/057：安全支持显式 WINDSURF_API_KEY、WSL/Linux Devin 自动发现和无凭据禁用外部检索，并区分认证、网络、超时、5xx 与协议错误。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "penn",
+  "assignee": "penn",
+  "createdAt": "2026-08-11",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "root_issues": "056,057",
+    "root_repo": "/home/penn/devel/codex-workflow-optimization",
+    "delivery": "independent-component-session"
+  }
+}

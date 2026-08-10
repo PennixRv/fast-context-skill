@@ -2,6 +2,8 @@ const PUBLIC_DIAGNOSTICS = Object.freeze({
   FC_ARG_DUPLICATE: "an option was provided more than once",
   FC_ARG_UNKNOWN: "the command line contains an unsupported option",
   FC_ARG_VALUE_MISSING: "an option value is missing",
+  FC_AUTH_REJECTED: "the external search service rejected authentication",
+  FC_EXTERNAL_DISABLED: "external search is disabled by the caller",
   FC_KEY_MISSING: "WINDSURF_API_KEY is required",
   FC_OUTPUT_LIMIT: "the bounded output limit was exceeded",
   FC_PATH_DENIED: "the requested path is denied",
@@ -13,6 +15,8 @@ const PUBLIC_DIAGNOSTICS = Object.freeze({
   FC_PROJECT_REQUIRED: "--project is required",
   FC_PROTOCOL_INVALID: "the remote response did not match the supported protocol",
   FC_QUERY_REQUIRED: "--query is required",
+  FC_REMOTE_SERVER_ERROR: "the external search service reported a server error",
+  FC_REMOTE_TIMEOUT: "the external search service timed out",
   FC_REMOTE_UNAVAILABLE: "the external search service is unavailable",
   FC_TOOL_UNAVAILABLE: "the local search tool failed safely",
 });

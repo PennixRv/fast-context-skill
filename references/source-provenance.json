@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.4",
+  "package": "@pennixrv/fast-context-skill@0.1.5",
   "source_repository": "https://github.com/PennixRv/fast-context-skill",
   "upstream": {
     "repository": "https://github.com/oulkurt/fast-context-skill",
@@ -17,6 +17,8 @@
     "scripts/fast-context-search.mjs",
     "scripts/lib/LICENSE.fast-context-mcp",
     "scripts/lib/core.mjs",
+    "scripts/lib/credentials.mjs",
+    "scripts/lib/devin-credential-helper.mjs",
     "scripts/lib/executor.mjs",
     "scripts/lib/path-guard.mjs",
     "scripts/lib/protobuf.mjs",
@@ -26,17 +28,19 @@
   "runtime_file_sha256": {
     "LICENSE": "bb9a2ce78d8b8ca19db1bb4ddc68b02aa1959487d28fc472d8414ede53cc3df1",
     "NOTICE.md": "cc25264b880d726f158bfa046bfdbe6871adb2ad86ebad3ecacad1f68410d61f",
-    "README.md": "beeb60572c8dc62da80459b1862c0fcf1ceaad82000a7eb50d7482482fabb27e",
-    "SKILL.md": "c638c283c6bead62c238a92dd40e5435245395643e744c54cda49e145daa0144",
+    "README.md": "426930073071c5b18f38c65ba1bf45cf12fc65ca7cffc353639056ee2f21d7be",
+    "SKILL.md": "68a11c87105cab5943df0032998e5f7b2a0e04fff17fb48cdcee980033aa9cf8",
     "agents/openai.yaml": "655cc490ab7d9fc277c2bd85cd187e937523266c95eee0310e7d1ec80c24c400",
-    "references/script-contract.md": "183b1f9146b4e114831d47c629f1de87bcdaeb606272c6cd7bc8799cb5262bda",
-    "scripts/fast-context-search.mjs": "3626b1718db131eda4e5d31dadcc6195f3abe865bf49e4f227f6974c7246db89",
+    "references/script-contract.md": "52e609b8c3bf3de9d824f78b773c7cdd7e6193491bdafa73687a4e8f8bf6d157",
+    "scripts/fast-context-search.mjs": "0235c4a7b227a300bcf9ee381e822c3f858934b649837be2009d39a0e780a0bb",
     "scripts/lib/LICENSE.fast-context-mcp": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
-    "scripts/lib/core.mjs": "94c0b2f25f86ac1b56a2dff826d0e47ae94a33d3142e7f8b8e8f3d6d05b0ae44",
+    "scripts/lib/core.mjs": "c7ba24325cf22e44567bb0361ac2252b459fef2edbcbd2ec5fa5836c1ff00480",
+    "scripts/lib/credentials.mjs": "d21cec35688727272340ddc30875bc982f4914843e76d947951e4256fd1a931d",
+    "scripts/lib/devin-credential-helper.mjs": "803ef84423c90b78f6c6a7ad410a2a8f2d5fd417ec2fac1d3654b770d99d3301",
     "scripts/lib/executor.mjs": "59c81efa6ee3a0ee0f3246fdb8bf9f37a400124969116ffc773d2da746983510",
-    "scripts/lib/path-guard.mjs": "c1de622b6c92bf1b415efb5d788a6327dd92836d4f3cb28e91f95999f7d4c98f",
+    "scripts/lib/path-guard.mjs": "70fc74745932957e5629e96fadb9b1d0f50a560e1c5fe66e819513950398ffeb",
     "scripts/lib/protobuf.mjs": "9cdc98c9b074154350b17569c67eade5330bbf6d9dc4e7f9a23c3b3eb4255080",
-    "scripts/lib/public-error.mjs": "0b68f06fd96bea52f805362515e60ad0a82315af45ce793a26b686a3837fc552"
+    "scripts/lib/public-error.mjs": "417900eb1ad877cc39f045e63115bc6166924c5dabf55d250e93d742d162168d"
   },
   "self_digest": "omitted to avoid a self-referential digest",
   "privacy": {

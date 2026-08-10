@@ -40,12 +40,16 @@ node /path/to/fast-context-skill/scripts/fast-context-search.mjs \
   --query "Where is the legacy import flow implemented?"
 ```
 
-The only optional controls are bounded `--max-results` and repeatable,
-relative additive `--deny` patterns. The command reads only the explicit
-`WINDSURF_API_KEY` environment variable. It never discovers credentials from
-desktop state, prints keys, persists prompts or responses, or emits raw remote
-errors. Do not run it without a user-provided key and never place a key in a
-file, command history, log, or commit.
+The only optional controls are bounded `--max-results`, repeatable relative
+additive `--deny` patterns, and `--no-external`. The command first accepts an
+explicit `WINDSURF_API_KEY`. On Linux/WSL only, a missing explicit key may use
+the current user's Devin CLI login through a package-owned, bounded no-shell
+helper. That helper has one fixed credentials path, rejects symlinks, oversize
+files, unknown fields and unsupported values, and never scans desktop state.
+It never prints keys, persists prompts or responses, or emits raw remote
+errors. Do not copy a credential into a file, command history, log, or commit.
+Use `--no-external` when the caller must prevent all credential access and
+remote search.
 
 Before using a result, resolve its relative path inside the same project root
 and read the relevant lines locally. When relationship analysis is needed,

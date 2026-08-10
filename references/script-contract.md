@@ -2,13 +2,34 @@
 
 The CLI accepts exactly one `--project <directory>` and one `--query <text>`.
 It also accepts bounded `--max-results <1..50>`, repeatable relative
-`--deny <glob>`, and standalone `--help`. Short aliases, positional values,
-retired credential flags, duplicate options, and unknown options fail closed.
+`--deny <glob>`, standalone `--no-external`, and standalone `--help`. Short
+aliases, positional values, retired credential flags, duplicate options, and
+unknown options fail closed.
 
 Every local operation is confined to the canonical project root. The baseline
 deny set covers repository metadata, Trellis/Codex state, credentials,
 generated output, logs, and dependency trees. `--deny` can only narrow this
 set.
+
+After argv and project-root validation, the CLI chooses credentials in a fixed
+order: a non-empty explicit `WINDSURF_API_KEY`, then a Linux/WSL Devin CLI
+login. The fallback is a package-owned, no-shell Node helper that only opens
+the current user's fixed `~/.local/share/devin/credentials.toml` path, rejects
+symlinks and oversize files, accepts only known fields and supported
+`devin-session-token$`, `devin-`, or `sk-` forms, and returns an accepted value
+through a bounded private pipe. It never scans desktop state databases or
+alternative paths. The CLI never prints, stores, logs, places in arguments, or
+returns credentials. Missing or invalid discovery fails as `FC_KEY_MISSING`.
+
+`--no-external` is the caller's explicit opt-out. It does not inspect the
+environment, start the credential helper, import the search core, or create a
+network request; it writes only `FC_EXTERNAL_DISABLED` to stderr. HTTP `401`
+and `403` produce `FC_AUTH_REJECTED`; a shared deadline produces
+`FC_REMOTE_TIMEOUT`; transport/caller cancellation produces
+`FC_REMOTE_UNAVAILABLE`; `5xx` produces `FC_REMOTE_SERVER_ERROR`; malformed
+JWT or Connect data produces `FC_PROTOCOL_INVALID`. These diagnostics never
+include response bodies, headers, request identifiers, paths, token-derived
+data, or caught exception text.
 
 Successful stdout is one JSON object:
 
@@ -49,3 +70,12 @@ Candidate projection has three separate guarantees:
 Remote prose, raw protocol frames, file contents, repository maps, progress
 events, child stderr, and caught exception messages are never public output.
 Public failures use a fixed `FC_*` code and local diagnostic text on stderr.
+
+## Bounded remote completion
+
+The remote protocol has at most three `restricted_exec` turns. Each one still
+uses the same PathGuard, resource budget, command count, and output limits. A
+fourth and final request advertises only the `answer` tool and the client
+rejects any non-answer response on that turn as `FC_PROTOCOL_INVALID`. The
+additional terminal request consumes the same monotonic deadline; it does not
+create a new local-tool round, timeout, or fallback candidate source.
