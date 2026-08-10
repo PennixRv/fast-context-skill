@@ -126,3 +126,31 @@ Published and independently verified @pennixrv/fast-context-skill@0.1.3; recorde
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Fast Context reliability fixes and npm 0.1.4 release
+
+**Date**: 2026-08-10
+**Task**: Fast Context reliability fixes and npm 0.1.4 release
+**Branch**: `main`
+
+### Summary
+
+完成 Issue 045-050 的有界搜索、共享预算、响应与 Connect 解码限制、候选范围复核和 Trellis 更新；合入 main，生成受证明 npm tarball，并通过 GitHub Actions 发布 @pennixrv/fast-context-skill@0.1.4。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a9e0d4e3d83d066e058a7882a182618583886ea8` | (see git log) |
+| `bc1ac5e2af25d67623e9b1d7c92a8eb3d43ab32f` | (see git log) |
+| `d9b2ba6da097465d3ac7589ecf56f26c17bb251f` | (see git log) |
+| `f772167c821df5b2c60ecf635e7ca69fb063060c` | (see git log) |
+| `2c70040c9455756fa5341590ad2fdf53f9cf406d` | (see git log) |
+| `cbe88d1baafb31478b23af9e8a862539662316f1` | (see git log) |
+| `46e3e3a1f0c34e5918cabe4454b03a2372115376` | (see git log) |
+| `dbfbccb` | (see git log) |
+
+### Status
+
+[OK] **Completed**
