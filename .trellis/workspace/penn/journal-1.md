@@ -179,3 +179,41 @@ Published and independently verified @pennixrv/fast-context-skill@0.1.3; recorde
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Stabilize and publish Fast Context v0.1.7
+
+**Date**: 2026-08-11
+**Task**: Stabilize and publish Fast Context v0.1.7
+**Branch**: `main`
+
+### Summary
+
+修复 ROOT-ISSUE-058 的终态协议、候选投影、提示词与有界重试；保留容量窗口未重跑 10/10 的已接受风险；修正无宿主 rg 的发布门回归，并从 main 以固定 NAS 工具链和证明链发布 0.1.7。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d64d838a77c8c0b6f7b08cc262713be234e8703` | (see git log) |
+| `2f2f1c6ecfae50fcffac5c6182d37df7dae369ca` | (see git log) |
+| `2bfa0e9a08cdb4d7965c3f958925e1a8a18cbf10` | (see git log) |
+| `c961e86f53a25f07cf220248ab0878c06ed282d7` | (see git log) |
+| `8e9cf46ecc38d1998a0f0e327e2be4e993be5103` | (see git log) |
+| `93e620cc8653be81adeb3c4f6f87c562e38874f3` | (see git log) |
+| `272d80662e46dcbd72c36f4a2776521cf9de2010` | (see git log) |
+| `91ac4c324b668ab5f8f106165c49b0b340204978` | (see git log) |
+| `3dbdbd25334365e22623d59fce702a077b85a1d2` | (see git log) |
+| `1ac6a3cd0a8a754f0a3fdfa6f14e36357360322c` | (see git log) |
+| `baf91a2e375937815a6cb94f01fe96786dbcf6d7` | (see git log) |
+| `e210c43f006e7e5a6b3376ba2da30e95bb09682a` | (see git log) |
+| `9bdc139f6c958d5c663ca56c5a8b41a5d03def1b` | (see git log) |
+| `bf0143b19af7ce5f49076c51dc193314026cccab` | (see git log) |
+| `68952031f3558916204ea34beac224db55e7fd5a` | (see git log) |
+| `7742c9311857dff65e55a48040f655d23537bd1c` | (see git log) |
+| `c92d18fda2a63edd30940262fce985640650f4d7` | (see git log) |
+| `a9ef89f2fafa902df640cc1411fc018a13b67721` | (see git log) |
+
+### Status
+
+[OK] **Completed**
