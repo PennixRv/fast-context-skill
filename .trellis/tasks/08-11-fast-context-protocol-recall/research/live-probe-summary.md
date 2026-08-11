@@ -167,3 +167,16 @@ stdio JSON-RPC 入口探针。探针显式移除 `WINDSURF_API_KEY`，只继承 
 修复后正式 CLI 的下一批请求遇到 `FC_REMOTE_UNAVAILABLE` 且无 stdout JSON，未形成新的召回统计；
 该结果是服务可用性失败，不应与 `remote_candidate_range_rejected` 混淆。待服务窗口恢复后，必须
 重新执行标准 MCP、fork 源码 CLI、安装后入口和三种措辞的完整受控验收。
+
+## 2026-08-11 修复后完整候选验收
+
+在提交 `8e9cf46` 后运行仓库既有完整入口，环境移除显式 `WINDSURF_API_KEY`，只使用 Linux/WSL Devin
+自动发现。10 次 source 保留查询得到 2 次 `complete` 且命中 `src/ledger/repair.ts`，1 次
+`truncated` 保留测试候选，1 次 `FC_PROTOCOL_INVALID`，6 次 `FC_REMOTE_UNAVAILABLE`；没有
+`complete`/零候选伪成功。source 三种措辞和 packed 三种措辞均在服务降级后返回
+`FC_REMOTE_UNAVAILABLE`，因此 packed 入口本次没有获得可比较的成功样本。
+
+该批次的无效静态 key 检查为 `FC_AUTH_REJECTED` 且 stdout 为空；packed 临时 tarball 的 SHA-256
+为 `3c9a85bf0ffb91709b9d6f67c9ca8799ac51a5bb5aae66c6fbe211961ed881a8`。该摘要只保留固定状态、
+本地验证候选和产物摘要，不保存远端正文、凭据、JWT、请求标识或绝对路径。完整门槛仍未满足，任务
+不得归档、打 tag 或发布。
