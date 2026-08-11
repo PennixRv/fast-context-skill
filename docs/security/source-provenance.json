@@ -79,7 +79,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "43b65027f21b9c9c09e8c912495d506989fa1a7f8f11b5c7756bea3ca0058a95"
+      "shipped_sha256": "f6b12c007973c918f79afe023c62b64ff9671d3983238c99a0ff1dd1350e7a25"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -132,7 +132,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Canonical containment, immutable deny set, bounded walking, internal deadline provenance, and locally generated read-range grounding.",
-      "shipped_sha256": "3044dff2ea6368b1b601bde366950fc392eb2c96598a905f4f23807ff84698ae"
+      "shipped_sha256": "cf8b5631ede6e6368fe80ae28fb6c42dc6353642ddf1a92b326dabc515cf3393"
     },
     {
       "path": "scripts/lib/protobuf.mjs",

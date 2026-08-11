@@ -617,7 +617,9 @@ export class PathGuard {
       ? endLine
       : safeStart + 79;
     const safeEnd = Math.min(requestedEnd, safeStart + 79);
-    const lines = content.split("\n").slice(safeStart - 1, safeEnd);
+    const allLines = content.length === 0 ? [] : content.split("\n");
+    if (allLines.at(-1) === "") allLines.pop();
+    const lines = allLines.slice(safeStart - 1, safeEnd);
     const output = lines
       .map((line, index) => `${safeStart + index}:${line.slice(0, 240)}`)
       .join("\n") || "(empty file)";

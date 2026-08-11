@@ -236,6 +236,12 @@ test("candidate ranges fail closed on EOF, empty files, span, escapes, and file 
       await guard.validateCandidateRange("/codebase/no-tail.txt", 3, 3, budget),
       { relativePath: "no-tail.txt", startLine: 3, endLine: 3, lineCount: 3 },
     );
+    const trailingRead = await guard.readText("/codebase/trailing.txt", 1, 80, budget);
+    assert.deepEqual(trailingRead.read_range, { start_line: 1, end_line: 3 });
+    assert.doesNotMatch(trailingRead.output, /4:/);
+    const noTailRead = await guard.readText("/codebase/no-tail.txt", 1, 80, budget);
+    assert.deepEqual(noTailRead.read_range, { start_line: 1, end_line: 3 });
+    assert.doesNotMatch(noTailRead.output, /4:/);
     assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 4, 4, budget), null);
     assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 2, 4, budget), null);
     assert.equal(await guard.validateCandidateRange("/codebase/trailing.txt", 0, 1, budget), null);

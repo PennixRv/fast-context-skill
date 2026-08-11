@@ -150,7 +150,10 @@ explicit opt-out `--no-external`, or positional arguments.
   `read_range` bounds of the exact numbered rows returned to the remote model.
   Terminal-answer prompts require a positive candidate range copied from those
   bounds, but `read_range` is not public CLI JSON, is absent for an empty read,
-  and does not replace PathGuard or the final same-version range recheck.
+  and does not replace PathGuard or the final same-version range recheck. The
+  line splitter must remove the single empty segment produced by a trailing
+  newline before calculating `read_range`; for `one\ntwo\n`, the exact range is
+  `1-2`, never `1-3`. A file without a trailing newline uses the same real EOF.
 - System instructions treat a locally read implementation as the primary
   behavior candidate. A directly related test is supplemental: when a verified
   implementation is available, a final answer must not return the test alone.

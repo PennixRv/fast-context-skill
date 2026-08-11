@@ -878,8 +878,11 @@ test("locally generated read ranges are carried into the next protocol request",
     });
     assert.equal(streamCall, 2);
     assert.equal(requestFrames[1].includes(Buffer.from(
-      '"read_range":{"start_line":1,"end_line":2}',
+      '"read_range":{"start_line":1,"end_line":1}',
     )), true);
+    assert.equal(requestFrames[1].includes(Buffer.from(
+      '"read_range":{"start_line":1,"end_line":2}',
+    )), false);
     assert.deepEqual(result.candidates, [{
       path: "src/candidate.mjs",
       start_line: 1,
@@ -888,6 +891,61 @@ test("locally generated read ranges are carried into the next protocol request",
     }]);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ledger read ranges exclude trailing newline sentinels before candidate projection", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  const requestFrames = [];
+  let streamCall = 0;
+  try {
+    const result = await search({
+      query: "find the orphaned settlement repair implementation",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        requestFrames.push(decodeRequestFrame(options.body));
+        streamCall += 1;
+        return response(connectResponse([
+          streamCall === 1
+            ? restrictedExecFrame({
+              command1: {
+                type: "readfile",
+                file: "/codebase/src/ledger/repair.ts",
+                start_line: 1,
+                end_line: 80,
+              },
+              command2: {
+                type: "readfile",
+                file: "/codebase/test/ledger-repair.test.ts",
+                start_line: 1,
+                end_line: 80,
+              },
+            })
+            : answerFrame(
+              '<ANSWER><file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>'
+                + '<file path="/codebase/test/ledger-repair.test.ts"><range>1-11</range></file></ANSWER>',
+            ),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(streamCall, 2);
+    assert.equal(requestFrames[1].includes(Buffer.from(
+      '"read_range":{"start_line":1,"end_line":24}',
+    )), true);
+    assert.equal(requestFrames[1].includes(Buffer.from(
+      '"read_range":{"start_line":1,"end_line":11}',
+    )), true);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), [
+      "src/ledger/repair.ts",
+      "test/ledger-repair.test.ts",
+    ]);
+    assert.equal(result.status, "complete");
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
   }
 });
 
