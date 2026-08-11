@@ -36,6 +36,36 @@ const CONNECT_ERROR_CODES = new Set([
   "data_loss",
   "unauthenticated",
 ]);
+const CONNECT_ERROR_CODES_BY_NUMBER = new Map([
+  [1, "canceled"],
+  [2, "unknown"],
+  [3, "invalid_argument"],
+  [4, "deadline_exceeded"],
+  [5, "not_found"],
+  [6, "already_exists"],
+  [7, "permission_denied"],
+  [8, "resource_exhausted"],
+  [9, "failed_precondition"],
+  [10, "aborted"],
+  [11, "out_of_range"],
+  [12, "unimplemented"],
+  [13, "internal"],
+  [14, "unavailable"],
+  [15, "data_loss"],
+  [16, "unauthenticated"],
+]);
+const CONNECT_ERROR_PUBLIC_CODES = new Map([
+  ["unauthenticated", "FC_AUTH_REJECTED"],
+  ["permission_denied", "FC_AUTH_REJECTED"],
+  ["deadline_exceeded", "FC_REMOTE_TIMEOUT"],
+  ["resource_exhausted", "FC_REMOTE_UNAVAILABLE"],
+  ["unavailable", "FC_REMOTE_UNAVAILABLE"],
+  ["canceled", "FC_REMOTE_UNAVAILABLE"],
+  ["aborted", "FC_REMOTE_UNAVAILABLE"],
+  ["internal", "FC_REMOTE_SERVER_ERROR"],
+  ["unknown", "FC_REMOTE_SERVER_ERROR"],
+  ["data_loss", "FC_REMOTE_SERVER_ERROR"],
+]);
 
 function protocolError(protocolReason) {
   const error = new FastContextError("FC_PROTOCOL_INVALID");
@@ -49,10 +79,24 @@ function protocolError(protocolReason) {
 }
 
 function remoteEndStreamErrorReason(error) {
-  const code = typeof error?.code === "string" ? error.code.trim().toLowerCase() : "";
+  const code = typeof error?.code === "string"
+    ? error.code.trim().toLowerCase()
+    : CONNECT_ERROR_CODES_BY_NUMBER.get(error?.code);
   return CONNECT_ERROR_CODES.has(code)
     ? `connect_end_stream_${code}`
     : "connect_end_stream_remote_error";
+}
+
+function remoteEndStreamError(error) {
+  const reason = remoteEndStreamErrorReason(error);
+  const code = reason.slice("connect_end_stream_".length);
+  const publicCode = CONNECT_ERROR_PUBLIC_CODES.get(code) || "FC_PROTOCOL_INVALID";
+  const publicError = new FastContextError(publicCode);
+  Object.defineProperty(publicError, "protocolReason", {
+    value: reason,
+    enumerable: false,
+  });
+  return publicError;
 }
 
 function outputLimitError() {
@@ -342,7 +386,7 @@ export function connectFrameDecode(data, options = {}) {
         throw protocolError("connect_end_stream_payload_invalid");
       }
       if (Object.hasOwn(end, "error")) {
-        throw protocolError(remoteEndStreamErrorReason(end.error));
+        throw remoteEndStreamError(end.error);
       }
       if (
         Object.hasOwn(end, "metadata")

@@ -43,8 +43,8 @@
       "path": "README.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Local-first operating, bounded answer correction, and candidate-projection documentation.",
-      "shipped_sha256": "93d669bdd401b0277bbcaadea77a6d5c3c7ef723e7adb2d634d1c15d8f2ec269"
+      "change_summary": "Local-first operating, bounded rate preflight and capacity retry, staged answer correction, locally grounded read ranges, implementation-priority projection, and fixed remote failure documentation.",
+      "shipped_sha256": "5c5d9c72c46043ae74bd8255c76719925017fd3e1859dbb8042522b2fd575978"
     },
     {
       "path": "SKILL.md",
@@ -71,15 +71,15 @@
       "path": "references/script-contract.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI, bounded answer correction, candidate projection, credential-source, and redacted error contract.",
-      "shipped_sha256": "277dfb9712fe11edca546ea6ca3901c02a88f9c896021f8eb42ad2cc61067499"
+      "change_summary": "Finite CLI, bounded upstream rate preflight, capacity retry, staged format correction and early answer, locally grounded read ranges, candidate projection, credential-source, and redacted remote-error contract.",
+      "shipped_sha256": "7e598fb29803b41d3891a92d53ee458760cb9126203e003a008abef5cc07f8ca"
     },
     {
       "path": "references/source-provenance.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "47be5ab34f3f8696b9cb26957a78cd5a99c5ed3c1bc4b822be0ed88ff06f7693"
+      "shipped_sha256": "9986b962c3538acd78f2db21c23453a7a13d23552030b2a69483cc49d7e2e3cf"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -103,8 +103,8 @@
       "path": "scripts/lib/core.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Bounded protocol client with force-answer completion, one-shot corrections, strict candidate projection, and fixed internal diagnostics.",
-      "shipped_sha256": "ed9262722e70f51b20f1f9298a005ce5b878ad1c43109189014b1854fcda072a"
+      "change_summary": "Bounded protocol client with shared-deadline rate preflight, bounded transient stream retry, staged format recovery, locally grounded answer ranges, implementation-first recall, strict candidate projection, and fixed internal diagnostics.",
+      "shipped_sha256": "ae007702f75e6169aefe45130fa71a30937f86f077db9a07e160ef3186a5ef57"
     },
     {
       "path": "scripts/lib/credentials.mjs",
@@ -131,15 +131,15 @@
       "path": "scripts/lib/path-guard.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Canonical containment, immutable deny set, bounded walking, and internal deadline provenance.",
-      "shipped_sha256": "70fc74745932957e5629e96fadb9b1d0f50a560e1c5fe66e819513950398ffeb"
+      "change_summary": "Canonical containment, immutable deny set, bounded walking, internal deadline provenance, and locally generated read-range grounding.",
+      "shipped_sha256": "3044dff2ea6368b1b601bde366950fc392eb2c96598a905f4f23807ff84698ae"
     },
     {
       "path": "scripts/lib/protobuf.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Fork-maintained strict Connect and Protobuf codec with fixed, non-serialized protocol diagnostics.",
-      "shipped_sha256": "c3cea8a5bb1e6965eb0bde386ec60a3a192587e5274a5807769aebb44fe43a8b"
+      "change_summary": "Fork-maintained strict Connect and Protobuf codec with fixed, non-serialized protocol and remote-service diagnostics.",
+      "shipped_sha256": "be21011475d2623b993a6baced0d829ca0c36f0d871fe2c3fb5b439079c8b88a"
     },
     {
       "path": "scripts/lib/public-error.mjs",

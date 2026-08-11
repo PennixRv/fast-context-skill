@@ -25,11 +25,44 @@ returns credentials. Missing or invalid discovery fails as `FC_KEY_MISSING`.
 environment, start the credential helper, import the search core, or create a
 network request; it writes only `FC_EXTERNAL_DISABLED` to stderr. HTTP `401`
 and `403` produce `FC_AUTH_REJECTED`; a shared deadline produces
-`FC_REMOTE_TIMEOUT`; transport/caller cancellation produces
-`FC_REMOTE_UNAVAILABLE`; `5xx` produces `FC_REMOTE_SERVER_ERROR`; malformed
-JWT or Connect data produces `FC_PROTOCOL_INVALID`. These diagnostics never
-include response bodies, headers, request identifiers, paths, token-derived
-data, or caught exception text.
+`FC_REMOTE_TIMEOUT`; transport/caller cancellation and a valid Connect
+`resource_exhausted`/`unavailable` EndStream produce `FC_REMOTE_UNAVAILABLE`;
+`5xx` and valid Connect `internal`/`unknown` EndStreams produce
+`FC_REMOTE_SERVER_ERROR`; malformed JWT or Connect framing produces
+`FC_PROTOCOL_INVALID`. These diagnostics never include response bodies,
+headers, request identifiers, paths, token-derived data, or caught exception
+text.
+
+After JWT acquisition, the live request path performs one gzip protobuf
+`CheckUserMessageRateLimit` preflight for the fixed `MODEL_SWE_1_6_FAST` model
+before building a repository map or opening the answer/tool stream. It uses the
+same remaining monotonic deadline and safe metadata as the stream route. A
+rejected, unavailable, timed-out, or server-error preflight stops the search
+with its existing fixed diagnostic; it does not inspect project files or send a
+stream request, and its response is discarded.
+
+A stream response with fixed capacity/availability evidence may retry the
+identical request at most twice after short fixed backoff. Each attempt takes
+the shared remaining deadline; retrying does not add a local-tool turn, command,
+format correction, request ID, or candidate source. Malformed Connect data,
+authentication, timeout, `5xx`, output ceilings, parser failures, and final
+protocol violations do not use this retry path.
+
+One malformed tool envelope may receive one fixed correction in the
+executable-tool stage, and one independently bounded correction in the final
+answer-only stage. This separation prevents an early formatting repair from
+removing the terminal protocol's only recovery attempt. A second malformed
+envelope in either stage remains `FC_PROTOCOL_INVALID`. Prompts treat a locally
+read implementation as primary for a behavior query; a related test cannot
+become the only result when that implementation is available, but all returned
+paths and ranges still require local validation.
+
+For protocol grounding, a guarded successful `readfile` result includes only an
+internal `read_range` object with the exact inclusive bounds of the numbered
+rows actually returned. Terminal answer and answer-correction prompts require a
+candidate to copy that positive range rather than estimate it. The field is not
+public CLI JSON, is `null` for an empty read, and never replaces the final
+same-version `validateCandidateRange()` check.
 
 Successful stdout is one JSON object:
 
@@ -88,8 +121,10 @@ Public failures use a fixed `FC_*` code and local diagnostic text on stderr.
 
 The remote protocol has at most three `restricted_exec` turns. Each one still
 uses the same PathGuard, resource budget, command count, and output limits. A
-fourth and final request first receives a fixed force-answer user message and
-advertises only the `answer` tool. The message forbids `restricted_exec`,
+locally evidenced `answer` may finish before that maximum; a remaining tool
+turn is never consumed merely to exhaust the limit. Only after three effective
+tool turns does the final request receive a fixed force-answer user message and
+advertise only the `answer` tool. The message forbids `restricted_exec`,
 requires strict `<file>`/`<range>` entries or an exact explicit no-result form,
 limits the result count, and forbids guessed paths/ranges. A malformed tool-tag
 JSON receives one fixed corrective user message and one retry under the same
@@ -97,5 +132,8 @@ remaining deadline; it neither forwards remote text nor creates a new tool
 round. A projection rejection may similarly receive one answer-only correction
 when the rejection is format/range related. The client rejects a terminal
 non-answer response as `FC_PROTOCOL_INVALID`; its internal fixed protocol
-reason is never emitted by the CLI. The terminal and correction requests consume
-the same monotonic deadline and never create a fallback candidate source.
+reason is never emitted by the CLI. A valid remote EndStream error remains
+failure-closed but maps to its fixed service category rather than being
+misreported as malformed Connect data. The terminal and correction requests
+consume the same monotonic deadline and never create a fallback candidate
+source.

@@ -80,6 +80,13 @@ explicit opt-out `--no-external`, or positional arguments.
   repository mapping, directory/glob walking, every `rg` child, up to four
   commands per round, up to three rounds, and candidate validation consume the
   same remaining budget. A step never receives a fresh full timeout.
+- After a JWT is acquired and before repository mapping or any stream request,
+  perform the bounded `CheckUserMessageRateLimit` unary preflight for the fixed
+  `MODEL_SWE_1_6_FAST` model. Its protobuf body is gzip-compressed, uses the
+  same safe metadata and Connect headers as the live route, and consumes the
+  same remaining budget. A rejected, timed-out, unavailable, or server-error
+  preflight fails closed with the existing fixed category; it never continues
+  to map files or open a stream, and its response body is discarded.
 - Default local limits are 30,000 ms elapsed, 4,096 visited entries, 512 visited
   directories, depth 16, 2,048 files, 200 matches, 512 KiB local output, 100
   glob results, 300 tree entries, and 64 KiB per readable file. Units and
@@ -99,9 +106,13 @@ explicit opt-out `--no-external`, or positional arguments.
   decompressed payload at 512 KiB, and cumulative decompressed bytes at 1 MiB.
 - Decode Connect input as exact `1 byte flags + 4 byte big-endian length +
   payload`. Reserved flags, length mismatch, residual bytes, gzip/encoding
-  mismatch, invalid gzip, missing/duplicate/early/non-final EndStream, data
-  after EndStream, and remote EndStream errors fail closed. Gzip never falls
-  back to raw payload.
+  mismatch, invalid gzip, missing/duplicate/early/non-final EndStream, and
+  data after EndStream fail closed as `FC_PROTOCOL_INVALID`. A structurally
+  valid EndStream `error` is a remote service result, not malformed framing:
+  auth codes map to `FC_AUTH_REJECTED`, deadline to `FC_REMOTE_TIMEOUT`,
+  unavailable/resource-exhausted/canceled/aborted to `FC_REMOTE_UNAVAILABLE`,
+  and unknown/internal/data-loss to `FC_REMOTE_SERVER_ERROR`. Its text and
+  metadata are never exposed. Gzip never falls back to raw payload.
 - After a valid Connect payload, tool tags may contain only formatting
   whitespace between `[TOOL_CALLS]`, the fixed word-form tool name, `[ARGS]`,
   and the JSON object. The JSON object itself must still be complete and
@@ -109,10 +120,19 @@ explicit opt-out `--no-external`, or positional arguments.
   local command/result.
 - A valid Connect response whose tool tag/JSON is locally invalid receives one
   fixed corrective user message and may make one replacement request using the
-  same `ResourceBudget` remaining time. Connect framing/compression/EndStream
-  failures, remote EndStream errors, output ceilings, transport failures, and a
-  second invalid tool tag fail immediately with their existing fixed code. The
-  correction never forwards or records remote prose and cannot add a tool turn.
+  same `ResourceBudget` remaining time. The executable-tool stage and final
+  answer-only stage each own one correction; neither can consume the other's
+  budget. Connect framing/compression/EndStream failures, remote EndStream
+  errors, output ceilings, transport failures, and a second invalid tool tag in
+  the same stage fail immediately with their existing fixed code. The correction
+  never forwards or records remote prose and cannot add a tool turn.
+- A stream rejected with fixed transient capacity/availability evidence
+  (`connect_end_stream_resource_exhausted`, `connect_end_stream_unavailable`,
+  or HTTP `429`) may reissue the identical request at most twice after fixed
+  short backoff. Every retry recalculates the shared remaining deadline; it
+  cannot add a local-tool turn, command, format correction, candidate source,
+  request identifier, or remote text. All other remote, framing, auth, timeout,
+  server, output, and parser failures remain terminal.
 - Successful candidates use PathGuard-approved relative paths and the fixed
   `local_range_validated` reason. Candidate ranges are positive, ordered,
   1-based, span at most 200 lines, exist in a non-empty file, and are checked
@@ -120,6 +140,15 @@ explicit opt-out `--no-external`, or positional arguments.
   the bounded read. EOF overflow, oversized spans, and changed files are
   dropped without clamp. Remote prose/reasons are never returned; callers still
   perform final semantic validation.
+- A successful guarded `readfile` tool result may include the internal
+  `read_range` bounds of the exact numbered rows returned to the remote model.
+  Terminal-answer prompts require a positive candidate range copied from those
+  bounds, but `read_range` is not public CLI JSON, is absent for an empty read,
+  and does not replace PathGuard or the final same-version range recheck.
+- System instructions treat a locally read implementation as the primary
+  behavior candidate. A directly related test is supplemental: when a verified
+  implementation is available, a final answer must not return the test alone.
+  This ranking instruction never bypasses PathGuard or range validation.
 - A complete empty result is valid only when the remote `answer` value is exact
   `<no_results/>` or the established empty `<ANSWER></ANSWER>` form. Each remote
   `<file>` marker contributes only a fixed count to `projection`; accepted
@@ -139,10 +168,15 @@ explicit opt-out `--no-external`, or positional arguments.
 | Metadata, secret, log, generated, or additive-deny path | `FC_PATH_DENIED` |
 | Blank explicit key and no accepted Linux/WSL Devin credential | `FC_KEY_MISSING` before core import/fetch |
 | `--no-external` | `FC_EXTERNAL_DISABLED` without environment read, helper, core import, or network request |
+| Rate-limit preflight `429` or Connect unavailable result | `FC_REMOTE_UNAVAILABLE` before repository mapping or stream request |
 | HTTP `401` or `403` | `FC_AUTH_REJECTED` without response body, headers, request ID, or credential detail |
 | HTTP `5xx` | `FC_REMOTE_SERVER_ERROR` without response body, headers, request ID, or credential detail |
 | Response/child/local output exceeds a byte ceiling | `FC_OUTPUT_LIMIT` without body, stderr, path, or exception text |
-| Connect header, flags, length, compression, or EndStream is invalid | `FC_PROTOCOL_INVALID` without remote error text |
+| Connect header, flags, length, compression, or EndStream structure is invalid | `FC_PROTOCOL_INVALID` without remote error text |
+| Valid Connect EndStream remote error | Fixed auth/timeout/unavailable/server category by Connect code, without remote error text |
+| Transient stream capacity/unavailable error or HTTP `429` | At most two identical stream retries under the same remaining deadline; then its fixed category |
+| First malformed tool-tag JSON in executable or answer-only stage | Add that stage's one fixed correction message and retry once under the same remaining deadline |
+| Second malformed tool-tag JSON in the same stage | `FC_PROTOCOL_INVALID` without response text |
 | Shared deadline or timeout signal | `FC_REMOTE_TIMEOUT`; active streams/children are cancelled and awaited |
 | Caller abort or transport failure | `FC_REMOTE_UNAVAILABLE`; active streams/children are cancelled and awaited |
 | Enumeration reaches entries/directories/depth/files/matches/glob/tree limit | Typed `truncated` with fixed local reason, visited counts, and continuation when available |
@@ -191,18 +225,24 @@ explicit opt-out `--no-external`, or positional arguments.
   path, approved batched files, typed failures, stdout limits, and that
   aborted/forced children have closed and no PID remains.
 - Core tests inject synthetic protocol responses and assert key-before-fetch,
+  gzip rate-limit preflight order/model/body and its failure before mapping,
   `401/403` authentication, transport, deadline timeout, `5xx`, malformed JWT
   and Connect categories, streaming byte limits, missing/incorrect
   `Content-Length`, slow stream/caller cancellation, one decreasing deadline
   across `4 x 3` commands, typed tool result propagation, and local candidate
   projection.
 - Core tests prove one valid-envelope malformed tool payload gets exactly one
-  same-budget retry, while malformed Connect envelopes and remote EndStream
-  errors remain terminal failures.
+  same-budget retry per stage, including a final answer-only correction after
+  an earlier executable-stage correction; malformed Connect envelopes and
+  remote EndStream errors remain terminal failures.
+- Core tests prove a first `resource_exhausted` stream response retries the
+  same request without a new tool turn and can succeed; retryable stream
+  failures remain capped and do not expose `X-Request-Id` or remote text.
 - Protocol tests combine with core tests and cover normal identity/gzip,
   single/multiple frames, reserved flags, partial headers, short/long lengths,
-  residual bytes, gzip bombs/failures, cumulative decompression, and every
-  missing/duplicate/early/non-final/error EndStream boundary.
+  residual bytes, gzip bombs/failures, cumulative decompression, every
+  missing/duplicate/early/non-final EndStream boundary, and fixed safe mapping
+  of valid remote EndStream errors.
 - Candidate tests assert start/end EOF overflow, zero/invalid order, empty file,
   spans over 200, trailing/no-trailing newline last lines, deny/root/symlink
   rejection, deterministic file change during final version comparison, all
@@ -402,7 +442,17 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 ### 3. Contracts
 
 - The protocol permits at most three `restricted_exec` turns and one final
-  answer-only request under one `ResourceBudget` deadline.
+  answer-only request under one `ResourceBudget` deadline. A locally evidenced
+  `answer` may end the exchange before that maximum; do not consume a remaining
+  tool turn merely because it is available.
+- Before constructing the repository map or protocol messages, the live client
+  must complete the fixed gzip `CheckUserMessageRateLimit` preflight after JWT
+  acquisition. It uses the same remaining deadline; a failure stops before any
+  filesystem map or answer/tool stream is requested.
+- A remote capacity/unavailability response may retry the unchanged stream
+  request at most twice with fixed short backoff and recalculated remaining
+  deadline. This is a transport retry, not another protocol turn: it cannot
+  execute a command, repeat a format correction, or reveal a remote response.
 - After the third effective local execution result, append one fixed user
   force-answer message before building the final request. It requires `answer`,
   prohibits `restricted_exec`, specifies `<file path="/codebase/relative"><range>start-end</range></file>`, permits only exact `<no_results/>` or empty `<ANSWER></ANSWER>` for no result,
@@ -413,6 +463,9 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 - A valid answer either has an exact explicit no-result form or one or more `<file>`
   markers. File entries are only candidate input: PathGuard/range validation
   remains the authority for exposed paths and ranges.
+- Instructions rank a locally read implementation ahead of a related test for
+  behavior queries. This is a model-facing recall rule only; final candidates
+  still require the same local path and range validation.
 - Projection counts and `coverage.reasons` use fixed client values only. They
   must never contain remote XML/prose, rejected paths, ranges, response bytes,
   JWTs, keys, request identifiers, or absolute project paths.
@@ -421,8 +474,11 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 
 | Condition | Required result |
 | --- | --- |
-| First valid Connect response has malformed tool-tag JSON | Add one fixed correction message and retry once under the same remaining deadline |
-| Second malformed tool-tag JSON | `FC_PROTOCOL_INVALID` without response text |
+| First malformed tool-tag JSON in executable or answer-only stage | Add that stage's one fixed correction message and retry once under the same remaining deadline |
+| Second malformed tool-tag JSON in the same stage | `FC_PROTOCOL_INVALID` without response text |
+| Rate-limit preflight is rejected | `FC_REMOTE_UNAVAILABLE`; zero map and stream requests follow |
+| Valid Connect EndStream `resource_exhausted` | `FC_REMOTE_UNAVAILABLE`, internal fixed `connect_end_stream_resource_exhausted`, and no remote error text |
+| First retryable stream capacity result, then valid `answer` | Return the locally validated answer; observer has one fixed retry event and no additional tool turn |
 | Final request returns `restricted_exec` | `FC_PROTOCOL_INVALID`, internal `answer_only_restricted_exec` only |
 | Exact `<no_results/>` or empty `<ANSWER></ANSWER>` | Complete zero-candidate result with zero projection counts |
 | `<file>` candidate lacks range or fails PathGuard/range validation | Omit it, increment `rejected_candidates`, and return `truncated` with fixed projection reason |
@@ -449,11 +505,19 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 
 - Decode injected final request frames and assert both the force-answer user
   message and absence of `restricted_exec` from final tool definitions.
+- Decode the preflight request and assert fixed model, gzip body, safe headers,
+  shared budget use, and no map/stream after a rejected preflight.
+- Inject capacity rejection followed by a valid frame; assert at most two
+  same-request retries, decreasing shared deadline, no `X-Request-Id`, and no
+  command or turn increment before the valid frame.
 - Assert three local rounds plus the terminal request consume decreasing values
-  from one deadline; assert final `restricted_exec` is failure-closed with the
-  fixed internal reason.
+  from one deadline; assert an earlier locally evidenced `answer` ends without
+  consuming remaining rounds; assert final `restricted_exec` is failure-closed
+  with the fixed internal reason.
 - Assert one malformed tool JSON receives one correction message and then
-  succeeds; no retry occurs for Connect framing or terminal-tool failures.
+  succeeds; assert a terminal answer-only correction remains available after an
+  executable-stage correction; no retry occurs for Connect framing or
+  terminal-tool failures.
 - Assert at most one answer-only correction for format/range projection rejects;
   it cannot erase a prior remote candidate into a complete empty result.
 - Use a fixed local fixture to cover valid answer projection, missing range,
@@ -482,4 +546,51 @@ if (remoteCandidateCount > 0 && rejectedCandidates > 0) {
 if (finalTurn && toolCall.name === "restricted_exec") {
   throw protocolError("answer_only_restricted_exec");
 }
+```
+
+Wrong:
+
+```js
+const jwt = await fetchJwt(apiKey, fetchImpl, timeoutMs, signal);
+const repoMap = await guard.buildRepoMap(new ResourceBudget({ timeoutMs }));
+```
+
+Correct:
+
+```js
+const jwt = await fetchJwt(apiKey, fetchImpl, budget.remainingMs(), budget.signal);
+await checkRateLimit(apiKey, jwt, fetchImpl, budget.remainingMs(), budget.signal);
+const repoMap = await guard.buildRepoMap(budget);
+```
+
+Wrong:
+
+```js
+if (error.code === "FC_REMOTE_UNAVAILABLE") {
+  return requestToolCall(buildNewRequest(), fetchImpl, freshTimeout, signal);
+}
+```
+
+Correct:
+
+```js
+if (isRetryableStreamFailure(error) && attempt < MAX_STREAM_RETRIES) {
+  await waitForStreamRetry(budget.signal, fixedBackoff);
+  return requestToolCall(theSameRequest, fetchImpl, budget, onRetry);
+}
+throw error;
+```
+
+Wrong:
+
+```js
+let toolFormatRetries = 0;
+if (invalidTool && toolFormatRetries++ === 0) retry();
+```
+
+Correct:
+
+```js
+const retries = finalTurn ? answerOnlyToolFormatRetries : executableToolFormatRetries;
+if (invalidTool && retries < 1) retryWithinThatStage();
 ```

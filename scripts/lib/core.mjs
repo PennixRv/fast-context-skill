@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { arch, platform } from "node:os";
+import { gzipSync } from "node:zlib";
 import {
   CONNECT_LIMITS,
   ProtobufEncoder,
@@ -16,18 +17,28 @@ const AUTH_BASE = "https://server.self-serve.windsurf.com/exa.auth_pb.AuthServic
 const APP_NAME = "windsurf";
 const APP_VERSION = "1.48.2";
 const LANGUAGE_SERVER_VERSION = "1.9544.35";
+const WS_MODEL = "MODEL_SWE_1_6_FAST";
 const CONNECT_USER_AGENT = "connect-go/1.18.1 (go1.25.5)";
 const MAX_COMMANDS = EXECUTOR_LIMITS.MAX_COMMANDS;
 const MAX_REQUEST_BYTES = 128 * 1024;
 const MAX_RESPONSE_BYTES = CONNECT_LIMITS.MAX_RESPONSE_COMPRESSED_BYTES;
 const MAX_TOOL_FORMAT_RETRIES = 1;
 const MAX_ANSWER_FORMAT_RETRIES = 1;
+const MAX_STREAM_RETRIES = 2;
+const STREAM_RETRY_BACKOFF_MS = 250;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 // Three bounded local-tool rounds plus one answer-only protocol turn.
 const MAX_TURNS = 4;
 
-function networkError() {
-  return new FastContextError("FC_REMOTE_UNAVAILABLE");
+function networkError(protocolReason) {
+  const error = new FastContextError("FC_REMOTE_UNAVAILABLE");
+  if (typeof protocolReason === "string") {
+    Object.defineProperty(error, "protocolReason", {
+      value: protocolReason,
+      enumerable: false,
+    });
+  }
+  return error;
 }
 
 function authError() {
@@ -90,14 +101,29 @@ function buildMetadata(apiKey, jwt) {
   metadata.writeString(2, APP_VERSION);
   metadata.writeString(3, apiKey);
   metadata.writeString(4, "en");
+  // The service expects this schema shape, but the client deliberately avoids
+  // host, CPU, memory, and OS-version fingerprinting.
   metadata.writeString(5, JSON.stringify({
     Os: platform(),
     Arch: arch(),
+    Release: "0",
+    Version: "0",
     Machine: arch(),
     Nodename: "",
     Sysname: systemName(),
+    ProductVersion: "0",
   }));
   metadata.writeString(7, LANGUAGE_SERVER_VERSION);
+  metadata.writeString(8, JSON.stringify({
+    NumSockets: 1,
+    NumCores: 1,
+    NumThreads: 1,
+    VendorID: "",
+    Family: "0",
+    Model: "0",
+    ModelName: "",
+    Memory: 0,
+  }));
   metadata.writeString(12, APP_NAME);
   metadata.writeString(21, jwt);
   metadata.writeBytes(30, Buffer.from([0x00, 0x01]));
@@ -268,6 +294,7 @@ async function postBinary(fetchImpl, url, body, headers, timeoutMs, externalSign
     if (Number.isInteger(response?.status) && response.status >= 500 && response.status <= 599) {
       throw serverError();
     }
+    if (response?.status === 429) throw networkError("http_rate_limited");
     if (!response?.ok) throw networkError();
 
     validateDeclaredLength(response.headers, MAX_RESPONSE_BYTES);
@@ -308,6 +335,28 @@ async function fetchJwt(apiKey, fetchImpl, timeoutMs, signal) {
   return jwt;
 }
 
+async function checkRateLimit(apiKey, jwt, fetchImpl, timeoutMs, signal) {
+  const request = new ProtobufEncoder();
+  request.writeMessage(1, buildMetadata(apiKey, jwt));
+  request.writeString(3, WS_MODEL);
+  const body = gzipSync(request.toBuffer());
+  if (body.length > MAX_REQUEST_BYTES) throw outputLimitError();
+  await postBinary(
+    fetchImpl,
+    `${API_BASE}/CheckUserMessageRateLimit`,
+    body,
+    {
+      "Accept-Encoding": "gzip",
+      "Content-Encoding": "gzip",
+      "Content-Type": "application/proto",
+      "Connect-Protocol-Version": "1",
+      "User-Agent": CONNECT_USER_AGENT,
+    },
+    timeoutMs,
+    signal,
+  );
+}
+
 async function streamingRequest(protoBytes, fetchImpl, timeoutMs, signal) {
   const frame = connectFrameEncode(protoBytes);
   const response = await postBinary(
@@ -322,7 +371,6 @@ async function streamingRequest(protoBytes, fetchImpl, timeoutMs, signal) {
       "Connect-Timeout-Ms": String(timeoutMs),
       "User-Agent": CONNECT_USER_AGENT,
       "Accept-Encoding": "identity",
-      "X-Request-Id": randomUUID(),
     },
     timeoutMs,
     signal,
@@ -416,25 +464,46 @@ function toolDefinitions({ allowRestrictedExec = true } = {}) {
   return JSON.stringify(definitions);
 }
 
+function formatRepositoryMap(repoMap) {
+  const status = ["complete", "truncated", "failure"].includes(repoMap?.status)
+    ? repoMap.status
+    : "failure";
+  const output = typeof repoMap?.output === "string" && repoMap.output.length > 0
+    ? repoMap.output
+    : "(no repository paths available)";
+  return [
+    `Repo Map (bounded local tree rooted at /codebase; status: ${status}):`,
+    "```text",
+    output,
+    "```",
+    status === "complete"
+      ? "This map is orientation only. Verify every candidate path and range with restricted_exec before answering."
+      : "This map is incomplete. Use restricted_exec to verify paths and ranges before answering.",
+  ].join("\n");
+}
+
 function systemPrompt(maxResults) {
   return [
     "You are an expert software engineer providing candidate source context for another engineer.",
     "Return files and complete semantic blocks relevant to the requested behavior, including verified implementation and tests when useful.",
     "Use restricted_exec only with /codebase paths.",
     "Never request hidden, credential, generated, or repository metadata paths.",
-    "Emit every tool call exactly as [TOOL_CALLS]restricted_exec[ARGS] followed immediately by one JSON object.",
-    "Example: [TOOL_CALLS]restricted_exec[ARGS]{\"command1\":{\"type\":\"rg\",\"pattern\":\"symbol\",\"path\":\"/codebase/src\"}}",
-    "Each rg needs only pattern and an existing /codebase path; each readfile needs only file, start_line, and end_line. Never send shell text, cwd, or paths outside /codebase.",
+    "For every response, output exactly one tool envelope. Its first character is [, and it has no Markdown, prose, thinking, code fence, comment, or trailing comma.",
+    "A restricted call is exactly [TOOL_CALLS]restricted_exec[ARGS] followed immediately by one complete JSON object with one to four command1 through command4 properties.",
+    "Each command is exactly one declared object: rg needs type, pattern, path; readfile needs type, file, start_line, end_line; tree needs type, path, levels; ls needs type, path; glob needs type, pattern, path.",
+    "Example: [TOOL_CALLS]restricted_exec[ARGS]{\"command1\":{\"type\":\"rg\",\"pattern\":\"symbol\",\"path\":\"/codebase/src\"},\"command2\":{\"type\":\"readfile\",\"file\":\"/codebase/src/example.ts\",\"start_line\":1,\"end_line\":40}}",
+    "Never send shell text, cwd, paths outside /codebase, unsupported command fields, comments, or a JSON array.",
     "Use MAP to orient from the repository map, ANCHOR with narrow rg searches, then VERIFY every returned candidate with readfile.",
-    "A candidate is not established by a tree or rg hit alone. Include complete relevant functions/classes and direct tests only after verification.",
-    "Use all three available restricted_exec rounds before answer unless the local evidence proves there are no relevant files.",
-    "Before returning each candidate, use readfile for that exact file and choose a range wholly within the numbered lines returned; never guess line numbers.",
+    "TRACE imports only with narrowed rg searches. Use tree for orientation, not proof. Use glob only to enumerate a bounded path pattern.",
+    "A candidate is not established by a tree, ls, glob, or rg hit alone. Include complete relevant functions/classes and direct tests only after reading that exact file.",
+    "For a behavior query, the verified implementation is primary. When a direct test is relevant, locate and read the implementation it exercises before answering; never return a test as the only candidate when a verified implementation is available.",
+    "Use no more than three restricted_exec rounds. Once the local evidence is sufficient, call answer immediately; never request another tool turn solely to use a remaining round.",
+    "readfile returns numbered rows as N:source and a locally generated read_range with its exact inclusive bounds. Before returning each candidate, copy exactly one positive N-N range from that read_range and wholly within those rows; never estimate paths or line numbers.",
     "After at most three restricted_exec calls, the following turn must return answer using only the locally verified evidence available.",
-    "Finish exactly as [TOOL_CALLS]answer[ARGS] followed immediately by one JSON object with an answer field.",
-    "Do not add whitespace or prose between [TOOL_CALLS], the tool name, [ARGS], and the JSON object.",
-    "The answer field contains an <ANSWER> root with <file path=\"/codebase/relative\"><range>start-end</range></file> entries using positive inclusive ranges based on local tool evidence.",
+    "Finish exactly as [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object with an answer field.",
+    "The answer field contains an <ANSWER> root with <file path=\"/codebase/relative\"><range>start-end</range></file> entries. Each file has exactly one range, and every entry comes from a prior readfile result. Do not include a file when its range cannot be copied from N:source rows.",
     "Example: [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER><file path=\\\"/codebase/src/example.ts\\\"><range>10-20</range></file></ANSWER>\"}",
-    "When no relevant candidate exists, return exactly [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER></ANSWER>\"}.",
+    "When no relevant candidate exists after the available local evidence, return exactly [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER></ANSWER>\"}.",
     `Return at most ${maxResults} candidate entries and never guess paths or line ranges.`,
   ].join("\n");
 }
@@ -443,7 +512,9 @@ function forceAnswerPrompt(maxResults) {
   return [
     "You have no tool turns left. Call answer now.",
     "Do not request restricted_exec or any other tool.",
+    "Your entire response must be exactly [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object.",
     "Return only locally evidenced candidates inside <ANSWER> as <file path=\"/codebase/relative\"><range>start-end</range></file>.",
+    "For every candidate, copy its positive N-N range exactly from a prior readfile read_range and keep it wholly within the returned N:source rows.",
     "If there are no such candidates, use exactly <ANSWER></ANSWER>.",
     `Return at most ${maxResults} candidate entries; do not guess paths or line ranges.`,
   ].join("\n");
@@ -456,7 +527,8 @@ function answerCorrectionPrompt(projection, maxResults) {
   return [
     `The previous answer had ${projection.rejected_candidates} locally rejected candidate entries (${reasons}).`,
     "This is the only answer-format correction attempt. Call answer now and do not request restricted_exec or any other tool.",
-    "Return every candidate again only when its exact path and inclusive range came from prior readfile output.",
+    "Your entire response must be exactly [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object.",
+    "A valid range is one positive N-N pair copied from a prior readfile read_range and wholly within its N:source rows. Return every candidate again only when its exact path and range meet that rule.",
     "Otherwise return exactly <ANSWER></ANSWER>; do not use prose or guess a path or line range.",
     `Return at most ${maxResults} candidate entries.`,
   ].join("\n");
@@ -467,7 +539,7 @@ function toolFormatCorrectionPrompt(finalTurn) {
   return [
     "The previous tool-call envelope was invalid. This is the only tool-format correction attempt.",
     `Call only ${allowedTool} using exactly [TOOL_CALLS]tool_name[ARGS] followed immediately by one valid JSON object.`,
-    "Do not add prose, Markdown, XML, or whitespace between the markers and the JSON object.",
+    "The first character must be [, and there must be no prose, Markdown, XML, code fence, comment, trailing comma, or text outside the JSON object.",
     finalTurn
       ? "This is answer-only: do not request restricted_exec."
       : "For restricted_exec, use only the documented structured local-tool schema.",
@@ -527,9 +599,58 @@ function parseToolCall(text) {
   return { name, args };
 }
 
-async function requestToolCall(request, fetchImpl, timeoutMs, signal) {
-  const response = await streamingRequest(request, fetchImpl, timeoutMs, signal);
-  return parseResponse(response);
+function isRetryableStreamFailure(error) {
+  return error?.code === "FC_REMOTE_UNAVAILABLE"
+    && [
+      "connect_end_stream_resource_exhausted",
+      "connect_end_stream_unavailable",
+      "http_rate_limited",
+    ].includes(error?.protocolReason);
+}
+
+async function waitForStreamRetry(signal, delayMs) {
+  if (signal.aborted) throw networkError();
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(done, delayMs);
+    timer.unref?.();
+    function done() {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }
+    function abort() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(networkError());
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function requestToolCall(request, fetchImpl, budget, onRetry) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await streamingRequest(
+        request,
+        fetchImpl,
+        budget.remainingMs(),
+        budget.signal,
+      );
+      return parseResponse(response);
+    } catch (error) {
+      if (!isRetryableStreamFailure(error) || attempt >= MAX_STREAM_RETRIES) throw error;
+      const retry = attempt + 1;
+      onRetry?.({
+        event: "stream_retry",
+        attempt: retry,
+        code: error.code,
+        protocol_reason: error.protocolReason,
+      });
+      const remaining = budget.remainingMs();
+      const delay = Math.min(STREAM_RETRY_BACKOFF_MS * retry, Math.max(0, remaining - 1));
+      if (delay <= 0) throw error;
+      await waitForStreamRetry(budget.signal, delay);
+    }
+  }
 }
 
 function parseResponse(response) {
@@ -742,6 +863,21 @@ export async function search({
   try {
     const boundedResults = Math.max(1, Math.min(50, Number(maxResults) || 10));
     const jwt = await fetchJwt(apiKey, fetchImpl, budget.remainingMs(), budget.signal);
+    notifyProtocol(onProtocolEvent, { event: "rate_limit_preflight", status: "started" });
+    try {
+      await checkRateLimit(apiKey, jwt, fetchImpl, budget.remainingMs(), budget.signal);
+    } catch (error) {
+      notifyProtocol(onProtocolEvent, {
+        event: "rate_limit_preflight",
+        status: "failed",
+        code: typeof error?.code === "string" ? error.code : "FC_REMOTE_UNAVAILABLE",
+        protocol_reason: typeof error?.protocolReason === "string"
+          ? error.protocolReason
+          : undefined,
+      });
+      throw error;
+    }
+    notifyProtocol(onProtocolEvent, { event: "rate_limit_preflight", status: "complete" });
     let observedTurn = 0;
     const executor = new ToolExecutor(guard, {
       budget,
@@ -759,12 +895,23 @@ export async function search({
       { role: 5, content: systemPrompt(boundedResults) },
       {
         role: 1,
-        content: `Problem statement:\n${query.slice(0, 2000)}\n\nRepository map result:\n${JSON.stringify(repoMap)}`,
+        content: `Problem Statement: ${query.slice(0, 2000)}\n\n${formatRepositoryMap(repoMap)}`,
       },
     ];
     const definitions = toolDefinitions();
-    let toolFormatRetries = 0;
+    let executableToolFormatRetries = 0;
+    let answerOnlyToolFormatRetries = 0;
     let answerFormatRetries = 0;
+    const requestWithRetry = (request, turn, finalTurn) => requestToolCall(
+      request,
+      fetchImpl,
+      budget,
+      (event) => notifyProtocol(onProtocolEvent, {
+        ...event,
+        turn,
+        final_turn: finalTurn,
+      }),
+    );
 
     for (let turn = 0; turn < MAX_TURNS; turn += 1) {
       const finalTurn = turn === MAX_TURNS - 1;
@@ -777,15 +924,14 @@ export async function search({
       if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
       let toolCall;
       try {
-        toolCall = await requestToolCall(
-          request,
-          fetchImpl,
-          budget.remainingMs(),
-          budget.signal,
-        );
+        toolCall = await requestWithRetry(request, turn + 1, finalTurn);
       } catch (error) {
-        if (error?.retryableToolFormat && toolFormatRetries < MAX_TOOL_FORMAT_RETRIES) {
-          toolFormatRetries += 1;
+        const formatRetries = finalTurn
+          ? answerOnlyToolFormatRetries
+          : executableToolFormatRetries;
+        if (error?.retryableToolFormat && formatRetries < MAX_TOOL_FORMAT_RETRIES) {
+          if (finalTurn) answerOnlyToolFormatRetries += 1;
+          else executableToolFormatRetries += 1;
           messages.push({ role: 1, content: toolFormatCorrectionPrompt(finalTurn) });
           const correctionRequest = buildRequest(
             apiKey,
@@ -795,12 +941,7 @@ export async function search({
           );
           if (correctionRequest.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
           try {
-            toolCall = await requestToolCall(
-              correctionRequest,
-              fetchImpl,
-              budget.remainingMs(),
-              budget.signal,
-            );
+            toolCall = await requestWithRetry(correctionRequest, turn + 1, finalTurn);
           } catch (correctionError) {
             notifyProtocol(onProtocolEvent, {
               event: "tool_format_correction",
@@ -863,12 +1004,7 @@ export async function search({
         if (correctionRequest.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
         let correctionCall;
         try {
-          correctionCall = await requestToolCall(
-            correctionRequest,
-            fetchImpl,
-            budget.remainingMs(),
-            budget.signal,
-          );
+          correctionCall = await requestWithRetry(correctionRequest, turn + 1, true);
         } catch (error) {
           notifyProtocol(onProtocolEvent, {
             event: "answer_correction",
@@ -956,6 +1092,7 @@ export const CORE_LIMITS = Object.freeze({
   MAX_RESPONSE_BYTES,
   MAX_TOOL_FORMAT_RETRIES,
   MAX_ANSWER_FORMAT_RETRIES,
+  MAX_STREAM_RETRIES,
   MAX_TOOL_ARGS_BYTES,
   MAX_TURNS,
 });

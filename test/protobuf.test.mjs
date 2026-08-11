@@ -81,7 +81,6 @@ test("Connect decoder requires one final successful EndStreamResponse", () => {
     message,
     Buffer.concat([endStream(), message]),
     Buffer.concat([message, endStream(), endStream()]),
-    Buffer.concat([message, endStream({ error: { code: "unavailable" } })]),
     Buffer.concat([message, envelope(Buffer.from("not-json"), 0x02)]),
     Buffer.concat([message, endStream({ error: null })]),
     Buffer.concat([message, endStream({ metadata: [] })]),
@@ -94,6 +93,7 @@ test("Connect decoder requires one final successful EndStreamResponse", () => {
 test("Connect protocol diagnostics retain fixed reasons without serializing payload data", () => {
   let incomplete;
   let remoteError;
+  let numericRemoteError;
   try {
     connectFrameDecode(Buffer.from([0, 0, 0, 0]));
   } catch (error) {
@@ -107,6 +107,14 @@ test("Connect protocol diagnostics retain fixed reasons without serializing payl
   } catch (error) {
     remoteError = error;
   }
+  try {
+    connectFrameDecode(Buffer.concat([
+      connectFrameEncode(Buffer.from("message"), false),
+      endStream({ error: { code: 3, message: "REMOTE_BODY_SENTINEL" } }),
+    ]));
+  } catch (error) {
+    numericRemoteError = error;
+  }
   assert.equal(incomplete?.code, "FC_PROTOCOL_INVALID");
   assert.equal(incomplete?.protocolReason, "connect_frame_header_incomplete");
   assert.deepEqual(JSON.parse(JSON.stringify(incomplete)), {
@@ -114,10 +122,36 @@ test("Connect protocol diagnostics retain fixed reasons without serializing payl
     code: "FC_PROTOCOL_INVALID",
   });
   assert.equal(remoteError?.protocolReason, "connect_end_stream_unavailable");
+  assert.equal(numericRemoteError?.protocolReason, "connect_end_stream_invalid_argument");
   assert.deepEqual(JSON.parse(JSON.stringify(remoteError)), {
     name: "FastContextError",
-    code: "FC_PROTOCOL_INVALID",
+    code: "FC_REMOTE_UNAVAILABLE",
   });
+  assert.equal(numericRemoteError?.code, "FC_PROTOCOL_INVALID");
+});
+
+test("Connect EndStream remote errors map stable service categories without error text", () => {
+  const cases = [
+    ["unauthenticated", "FC_AUTH_REJECTED"],
+    ["permission_denied", "FC_AUTH_REJECTED"],
+    ["deadline_exceeded", "FC_REMOTE_TIMEOUT"],
+    ["resource_exhausted", "FC_REMOTE_UNAVAILABLE"],
+    ["internal", "FC_REMOTE_SERVER_ERROR"],
+  ];
+  for (const [remoteCode, publicCode] of cases) {
+    let error;
+    try {
+      connectFrameDecode(Buffer.concat([
+        connectFrameEncode(Buffer.from("message"), false),
+        endStream({ error: { code: remoteCode, message: "REMOTE_BODY_SENTINEL" } }),
+      ]));
+    } catch (caught) {
+      error = caught;
+    }
+    assert.equal(error?.code, publicCode);
+    assert.equal(error?.protocolReason, `connect_end_stream_${remoteCode}`);
+    assert.doesNotMatch(JSON.stringify(error), /REMOTE_BODY_SENTINEL/);
+  }
 });
 
 test("Connect decoder separately bounds compressed, decompressed, and cumulative frame bytes", () => {

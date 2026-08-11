@@ -621,12 +621,21 @@ export class PathGuard {
     const output = lines
       .map((line, index) => `${safeStart + index}:${line.slice(0, 240)}`)
       .join("\n") || "(empty file)";
+    const readRange = lines.length > 0
+      ? { start_line: safeStart, end_line: safeStart + lines.length - 1 }
+      : null;
     const truncated = requestedEnd > safeEnd;
     if (truncated) budget.markTruncated("line_limit");
     if (!budget.tryConsume("outputBytes", Buffer.byteLength(output), "output_limit")) {
       return typedResult("truncated", { output: "(output budget exhausted)" }, budget, null, "output_limit");
     }
-    return typedResult(truncated ? "truncated" : "complete", { output }, budget, null, truncated ? "line_limit" : null);
+    return typedResult(
+      truncated ? "truncated" : "complete",
+      { output, read_range: readRange },
+      budget,
+      null,
+      truncated ? "line_limit" : null,
+    );
   }
 
   async validateCandidateRange(value, startLine, endLine, budget) {

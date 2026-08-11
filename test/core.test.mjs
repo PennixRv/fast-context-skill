@@ -29,9 +29,12 @@ function streamedResponse(chunks, options = {}) {
   const state = { arrayBufferCalled: false, cancelled: false, reads: 0 };
   let index = 0;
   let pendingRead;
+  let resolveFirstRead;
+  const firstRead = new Promise((resolve) => { resolveFirstRead = resolve; });
   const reader = {
     read() {
       state.reads += 1;
+      if (state.reads === 1) resolveFirstRead();
       if (index < chunks.length) {
         const value = chunks[index];
         index += 1;
@@ -50,6 +53,7 @@ function streamedResponse(chunks, options = {}) {
   };
   return {
     state,
+    firstRead,
     value: {
       ok: true,
       headers: new Headers(options.headers),
@@ -60,6 +64,20 @@ function streamedResponse(chunks, options = {}) {
       },
     },
   };
+}
+
+async function waitForFirstRead(streamed, timeoutMs = 100) {
+  let timer;
+  try {
+    await Promise.race([
+      streamed.firstRead,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("stream did not begin")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function envelope(payload, flags) {
@@ -129,14 +147,14 @@ function decodeRequestFrame(body) {
   return gunzipSync(body.subarray(5));
 }
 
-test("search uses injected protocol streams and locally revalidates candidates", async () => {
+test("search preflights the upstream model route and locally revalidates candidates", async () => {
   const root = fixture();
   const calls = [];
   try {
     const guard = new PathGuard(root);
     const fetchImpl = async (url, options) => {
       calls.push({ url, options });
-      if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+      if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
       return response(connectResponse([answerFrame()]), {
         headers: { "Connect-Content-Encoding": "gzip" },
       });
@@ -153,18 +171,90 @@ test("search uses injected protocol streams and locally revalidates candidates",
     assert.deepEqual(result.search_terms, ["find", "candidate"]);
     assert.deepEqual(result.coverage.reasons, []);
     assert.ok(result.coverage.visited.entries >= 2);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     assert.equal(calls[0].options.headers["Accept-Encoding"], "gzip");
-    assert.equal(calls[1].options.headers["Accept-Encoding"], "identity");
+    assert.match(calls[1].url, /CheckUserMessageRateLimit$/);
+    assert.equal(calls[1].options.headers["Accept-Encoding"], "gzip");
+    assert.equal(calls[1].options.headers["Content-Encoding"], "gzip");
     assert.equal(calls[1].options.headers["User-Agent"], "connect-go/1.18.1 (go1.25.5)");
+    const preflightRequest = gunzipSync(calls[1].options.body);
+    assert.equal(preflightRequest.includes(Buffer.from("MODEL_SWE_1_6_FAST")), true);
+    assert.equal(preflightRequest.includes(Buffer.from('"Release":"0"')), true);
+    assert.equal(preflightRequest.includes(Buffer.from('"ProductVersion":"0"')), true);
+    assert.equal(preflightRequest.includes(Buffer.from('"Nodename":""')), true);
+    assert.equal(preflightRequest.includes(Buffer.from('"Memory":0')), true);
+    assert.equal(calls[2].options.headers["Accept-Encoding"], "identity");
+    assert.equal(calls[2].options.headers["User-Agent"], "connect-go/1.18.1 (go1.25.5)");
+    assert.equal(Object.hasOwn(calls[2].options.headers, "X-Request-Id"), false);
     assert.match(calls[0].options.body.toString("utf8"), /synthetic-key/);
-    const prompt = extractStrings(decodeRequestFrame(calls[1].options.body)).find((value) => value.includes("[TOOL_CALLS]"));
+    const prompt = extractStrings(decodeRequestFrame(calls[2].options.body)).find((value) => value.includes("[TOOL_CALLS]"));
     assert.match(prompt, /\[TOOL_CALLS\]restricted_exec\[ARGS\]/);
-    assert.match(prompt, /at most three restricted_exec calls, the following turn must return answer/);
-    assert.match(prompt, /Before returning each candidate, use readfile for that exact file/);
-    assert.match(prompt, /Never send shell text, cwd, or paths outside \/codebase/);
+    assert.match(prompt, /Use no more than three restricted_exec rounds/);
+    assert.match(prompt, /never request another tool turn solely to use a remaining round/);
+    assert.match(prompt, /readfile returns numbered rows as N:source and a locally generated read_range/);
+    assert.match(prompt, /Never send shell text, cwd, paths outside \/codebase/);
     assert.match(prompt, /Use MAP to orient from the repository map, ANCHOR with narrow rg searches/);
+    assert.match(prompt, /verified implementation is primary/);
+    assert.match(prompt, /never return a test as the only candidate/);
+    assert.match(prompt, /one to four command1 through command4 properties/);
+    assert.match(prompt, /no Markdown, prose, thinking, code fence, comment, or trailing comma/);
     assert.match(prompt, /\[TOOL_CALLS\]answer\[ARGS\]/);
+    const initialRequest = decodeRequestFrame(calls[2].options.body);
+    assert.equal(initialRequest.includes(Buffer.from("Problem Statement: find candidate")), true);
+    assert.equal(initialRequest.includes(Buffer.from(
+      "Repo Map (bounded local tree rooted at /codebase; status: complete):\n```text",
+    )), true);
+    assert.equal(initialRequest.includes(Buffer.from(
+      "Verify every candidate path and range with restricted_exec before answering",
+    )), true);
+    assert.equal(initialRequest.includes(Buffer.from('"visited"')), false);
+    assert.equal(initialRequest.includes(Buffer.from('"continuation"')), false);
+    assert.equal(initialRequest.includes(Buffer.from('"output"')), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rate-limit preflight fails closed before repository mapping or streaming", async () => {
+  const root = fixture();
+  let mapCalls = 0;
+  let streamCalls = 0;
+  const protocolEvents = [];
+  try {
+    const guard = new PathGuard(root);
+    const buildRepoMap = guard.buildRepoMap.bind(guard);
+    guard.buildRepoMap = async (...args) => {
+      mapCalls += 1;
+      return buildRepoMap(...args);
+    };
+    await assert.rejects(
+      search({
+        query: "find candidate",
+        guard,
+        apiKey: syntheticKey,
+        onProtocolEvent(event) { protocolEvents.push(event); },
+        fetchImpl: async (url) => {
+          if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+          if (url.includes("CheckUserMessageRateLimit")) {
+            return response(Buffer.from("REMOTE_BODY_SENTINEL"), { status: 429 });
+          }
+          streamCalls += 1;
+          return response(connectResponse([answerFrame()]));
+        },
+      }),
+      { code: "FC_REMOTE_UNAVAILABLE" },
+    );
+    assert.equal(mapCalls, 0);
+    assert.equal(streamCalls, 0);
+    assert.deepEqual(protocolEvents, [
+      { event: "rate_limit_preflight", status: "started" },
+      {
+        event: "rate_limit_preflight",
+        status: "failed",
+        code: "FC_REMOTE_UNAVAILABLE",
+        protocol_reason: "http_rate_limited",
+      },
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -191,7 +281,7 @@ test("format-only whitespace around remote tool tags retains strict JSON and loc
       query: "find candidate",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([whitespaceAnswerFrame()]), {
           headers: { "Connect-Content-Encoding": "gzip" },
@@ -218,7 +308,7 @@ test("one malformed remote tool envelope retries within the shared request budge
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       fetchImpl: async (url, options) => {
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         requests.push(decodeRequestFrame(options.body));
         streamCalls += 1;
         return response(connectResponse([
@@ -236,6 +326,50 @@ test("one malformed remote tool envelope retries within the shared request budge
       end_line: 1,
       reason: "local_range_validated",
     }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("answer-only format correction remains available after an executable-stage correction", async () => {
+  const root = fixture();
+  const requests = [];
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        requests.push(decodeRequestFrame(options.body));
+        const responseFrame = streamCalls === 1 || streamCalls === 5
+          ? protoString("[TOOL_CALLS] answer [ARGS] not-json")
+          : streamCalls === 6
+            ? answerFrame()
+            : restrictedExecFrame({ command1: { type: "tree", path: "/codebase", levels: 1 } });
+        return response(connectResponse([responseFrame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 6);
+    assert.deepEqual(result.candidates, [{
+      path: "src/candidate.mjs",
+      start_line: 1,
+      end_line: 1,
+      reason: "local_range_validated",
+    }]);
+    const terminalCorrection = extractStrings(requests[5]);
+    assert.ok(terminalCorrection.some((value) => value.includes("only tool-format correction attempt")));
+    assert.ok(terminalCorrection.some((value) => value.includes("This is answer-only")));
+    const terminalDefinitions = terminalCorrection
+      .find((value) => value.includes('"type":"function"') && value.includes('"name":"answer"'));
+    assert.ok(terminalDefinitions);
+    assert.equal(terminalDefinitions.includes("restricted_exec"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -303,7 +437,7 @@ test("malformed remote frames produce a bounded protocol error", async () => {
         guard: new PathGuard(root),
         apiKey: syntheticKey,
         onProtocolEvent(event) { protocolEvents.push(event); },
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : response(Buffer.from([0, 0, 0, 0, 1, 255])),
       }),
@@ -327,7 +461,7 @@ test("response bytes are bounded before arrayBuffer and cancel the reader", asyn
         query: "query",
         guard: new PathGuard(root),
         apiKey: syntheticKey,
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : streamed.value,
       }),
@@ -353,7 +487,7 @@ test("missing or incorrect Content-Length cannot bypass streaming limits", async
           query: "query",
           guard: new PathGuard(root),
           apiKey: syntheticKey,
-          fetchImpl: async (url) => url.includes("GetUserJwt")
+          fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
             ? response(protoString("eyJ.synthetic.jwt"))
             : streamed.value,
         }),
@@ -377,7 +511,7 @@ test("oversized Content-Length rejects before reading the body", async () => {
         query: "query",
         guard: new PathGuard(root),
         apiKey: syntheticKey,
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : streamed.value,
       }),
@@ -400,7 +534,7 @@ test("gzip expansion beyond the per-frame limit stays an output error", async ()
         query: "query",
         guard: new PathGuard(root),
         apiKey: syntheticKey,
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : response(bomb, { headers: { "Connect-Content-Encoding": "gzip" } }),
       }),
@@ -422,7 +556,7 @@ test("slow response streams converge on a dedicated timeout category and cancel 
         guard: new PathGuard(root),
         apiKey: syntheticKey,
         timeoutMs: 25,
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : streamed.value,
       }),
@@ -445,14 +579,16 @@ test("caller cancellation interrupts a response after partial delivery", async (
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       signal: controller.signal,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : streamed.value,
     });
-    setTimeout(() => controller.abort(), 10);
+    await waitForFirstRead(streamed);
+    controller.abort();
     await assert.rejects(pending, { code: "FC_REMOTE_UNAVAILABLE" });
     assert.equal(streamed.state.cancelled, true);
-    assert.equal(streamed.state.reads, 2);
+    assert.ok(streamed.state.reads >= 1);
+    assert.ok(streamed.state.reads <= 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -470,12 +606,63 @@ test("remote EndStream errors never produce successful candidates", async () => 
         query: "query",
         guard: new PathGuard(root),
         apiKey: syntheticKey,
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : response(body),
       }),
-      { code: "FC_PROTOCOL_INVALID" },
+      (error) => error?.code === "FC_REMOTE_UNAVAILABLE"
+        && error?.protocolReason === "connect_end_stream_unavailable",
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a transient remote capacity rejection retries the same bounded stream request", async () => {
+  const root = fixture();
+  const protocolEvents = [];
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        return response(connectResponse(
+          streamCalls === 1
+            ? []
+            : [answerFrame()],
+          streamCalls === 1
+            ? { end: { error: { code: "resource_exhausted", message: "REMOTE_BODY_SENTINEL" } } }
+            : undefined,
+        ), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.deepEqual(result.candidates, [{
+      path: "src/candidate.mjs",
+      start_line: 1,
+      end_line: 1,
+      reason: "local_range_validated",
+    }]);
+    assert.deepEqual(protocolEvents, [
+      { event: "rate_limit_preflight", status: "started" },
+      { event: "rate_limit_preflight", status: "complete" },
+      {
+        event: "stream_retry",
+        attempt: 1,
+        code: "FC_REMOTE_UNAVAILABLE",
+        protocol_reason: "connect_end_stream_resource_exhausted",
+        turn: 1,
+        final_turn: false,
+      },
+      { turn: 1, final_turn: false, tool_name: "answer" },
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -489,7 +676,7 @@ test("repository-map truncation remains explicit in the public result", async ()
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       resourceLimits: { MAX_VISITED_ENTRIES: 1 },
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame()]), {
           headers: { "Connect-Content-Encoding": "gzip" },
@@ -526,7 +713,7 @@ test("invalid remote ranges are visible as incomplete while valid final lines re
       query: "validate ranges",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(answer)]), {
           headers: { "Connect-Content-Encoding": "gzip" },
@@ -576,7 +763,7 @@ test("a file changed during range validation degrades to a local truncated resul
       query: "changing candidate",
       guard,
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame()]), {
           headers: { "Connect-Content-Encoding": "gzip" },
@@ -593,7 +780,7 @@ test("a file changed during range validation degrades to a local truncated resul
   }
 });
 
-test("typed local tool results are carried into the next protocol request", async () => {
+test("sufficient local evidence may answer without consuming remaining tool rounds", async () => {
   const root = fixture();
   const requestFrames = [];
   let streamCall = 0;
@@ -603,7 +790,7 @@ test("typed local tool results are carried into the next protocol request", asyn
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       fetchImpl: async (url, options) => {
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         requestFrames.push(decodeRequestFrame(options.body));
         streamCall += 1;
         return response(connectResponse([
@@ -618,6 +805,55 @@ test("typed local tool results are carried into the next protocol request", asyn
     assert.equal(requestFrames[1].includes(Buffer.from('"status":"complete"')), true);
     assert.equal(requestFrames[1].includes(Buffer.from('"visited"')), true);
     assert.equal(requestFrames[1].includes(Buffer.from("restricted local tool request accepted")), true);
+    const secondRequestStrings = extractStrings(requestFrames[1]);
+    assert.equal(secondRequestStrings.some((value) => value.includes("You have no tool turns left")), false);
+    const secondDefinitions = secondRequestStrings
+      .find((value) => value.includes('"type":"function"') && value.includes('"name":"answer"'));
+    assert.ok(secondDefinitions?.includes("restricted_exec"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("locally generated read ranges are carried into the next protocol request", async () => {
+  const root = fixture();
+  const requestFrames = [];
+  let streamCall = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        requestFrames.push(decodeRequestFrame(options.body));
+        streamCall += 1;
+        return response(connectResponse([
+          streamCall === 1
+            ? restrictedExecFrame({
+              command1: {
+                type: "readfile",
+                file: "/codebase/src/candidate.mjs",
+                start_line: 1,
+                end_line: 80,
+              },
+            })
+            : answerFrame(),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(streamCall, 2);
+    assert.equal(requestFrames[1].includes(Buffer.from(
+      '"read_range":{"start_line":1,"end_line":2}',
+    )), true);
+    assert.deepEqual(result.candidates, [{
+      path: "src/candidate.mjs",
+      start_line: 1,
+      end_line: 1,
+      reason: "local_range_validated",
+    }]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -633,7 +869,7 @@ test("the final protocol turn declares answer only after three bounded local-too
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       fetchImpl: async (url, options) => {
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         requestFrames.push(decodeRequestFrame(options.body));
         streamCall += 1;
         return response(connectResponse([
@@ -651,6 +887,8 @@ test("the final protocol turn declares answer only after three bounded local-too
     assert.equal(terminalDefinitions.includes('restricted_exec'), false);
     const terminalMessages = extractStrings(requestFrames[3]);
     assert.ok(terminalMessages.some((value) => value.includes("You have no tool turns left")));
+    assert.ok(terminalMessages.some((value) => value.includes("Your entire response must be exactly [TOOL_CALLS]answer[ARGS]")));
+    assert.ok(terminalMessages.some((value) => value.includes("prior readfile read_range")));
     assert.ok(terminalMessages.some((value) => value.includes("<ANSWER></ANSWER>")));
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -669,7 +907,7 @@ test("a terminal restricted_exec has a stable non-sensitive protocol reason", as
         apiKey: syntheticKey,
         onProtocolEvent(event) { protocolEvents.push(event); },
         fetchImpl: async (url) => {
-          if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+          if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
           streamCall += 1;
           return response(connectResponse([
             restrictedExecFrame({ command1: { type: "tree", path: "/codebase", levels: 1 } }),
@@ -701,7 +939,7 @@ test("the controlled ledger fixture projects a locally valid candidate", async (
       query: "resume interrupted financial records",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(
           '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>',
@@ -734,7 +972,7 @@ test("an answer candidate without a range is not reported as complete no-results
       query: "resume interrupted financial records",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(
           '<file path="/codebase/test/ledger-repair.test.ts"></file>',
@@ -766,7 +1004,7 @@ test("one answer-format correction uses answer only and returns a locally valid 
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       fetchImpl: async (url, options) => {
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         requests.push(decodeRequestFrame(options.body));
         streamCalls += 1;
         const answer = streamCalls === 1
@@ -787,6 +1025,7 @@ test("one answer-format correction uses answer only and returns a locally valid 
     const correctionMessages = extractStrings(requests[1]);
     assert.ok(correctionMessages.some((value) => value.includes("only answer-format correction attempt")));
     assert.ok(correctionMessages.some((value) => value.includes("remote_candidate_missing_range")));
+    assert.ok(correctionMessages.some((value) => value.includes("copied from a prior readfile read_range")));
     assert.equal(correctionMessages.some((value) => value.includes("src/ledger/repair.ts")), false);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -802,7 +1041,7 @@ test("a second rejected answer does not create an unbounded correction loop", as
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       fetchImpl: async (url) => {
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         streamCalls += 1;
         return response(connectResponse([answerFrame(
           '<ANSWER><file path="/codebase/src/ledger/repair.ts"></file></ANSWER>',
@@ -827,7 +1066,7 @@ test("an empty correction cannot downgrade rejected remote candidates to complet
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       fetchImpl: async (url) => {
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         streamCalls += 1;
         const answer = streamCalls === 1
           ? '<ANSWER><file path="/codebase/src/ledger/repair.ts"></file></ANSWER>'
@@ -855,7 +1094,7 @@ test("all PathGuard-rejected candidates remain visibly incomplete", async () => 
       query: "resume interrupted financial records",
       guard: new PathGuard(root, ["src/**"]),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(
           '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>',
@@ -878,7 +1117,7 @@ test("all out-of-range candidates remain visibly incomplete", async () => {
       query: "resume interrupted financial records",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(
           '<file path="/codebase/src/ledger/repair.ts"><range>25-26</range></file>',
@@ -901,7 +1140,7 @@ test("partial candidate projection retains only local successes and counts rejec
       query: "resume interrupted financial records",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(
           '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>'
@@ -936,7 +1175,7 @@ test("the candidate result limit leaves later remote candidates visibly unproces
       guard: new PathGuard(root),
       apiKey: syntheticKey,
       maxResults: 1,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame(
           '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>'
@@ -966,7 +1205,7 @@ test("unstructured answer text is a protocol error rather than an implicit no-re
         query: "resume interrupted financial records",
         guard: new PathGuard(root),
         apiKey: syntheticKey,
-        fetchImpl: async (url) => url.includes("GetUserJwt")
+        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : response(connectResponse([answerFrame("no result found")]), {
             headers: { "Connect-Content-Encoding": "gzip" },
@@ -987,7 +1226,7 @@ test("only an explicit no-results answer may be complete with zero candidates", 
       query: "resume interrupted financial records",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame("<no_results/>")]), {
           headers: { "Connect-Content-Encoding": "gzip" },
@@ -1014,7 +1253,7 @@ test("the established empty ANSWER XML remains an explicit no-results answer", a
       query: "resume interrupted financial records",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
-      fetchImpl: async (url) => url.includes("GetUserJwt")
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
         ? response(protoString("eyJ.synthetic.jwt"))
         : response(connectResponse([answerFrame("<ANSWER></ANSWER>")]), {
           headers: { "Connect-Content-Encoding": "gzip" },
@@ -1079,7 +1318,7 @@ test("three four-command local-tool rounds and the answer-only turn consume one 
       now: () => now,
       fetchImpl: async (url, options) => {
         now += 10;
-        if (url.includes("GetUserJwt")) return response(protoString("eyJ.synthetic.jwt"));
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
         observedTimeouts.push(Number(options.headers["Connect-Timeout-Ms"]));
         streamCalls += 1;
         return response(connectResponse([restrictedExecFrame(fourTreeCommands())]), {
@@ -1140,7 +1379,7 @@ test("a local deadline stops the active command round without a fresh timeout", 
       fetchImpl: async (url) => {
         fetchCalls += 1;
         now += 5;
-        return url.includes("GetUserJwt")
+        return (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
           ? response(protoString("eyJ.synthetic.jwt"))
           : response(connectResponse([restrictedExecFrame(fourTreeCommands())]), {
             headers: { "Connect-Content-Encoding": "gzip" },
@@ -1149,7 +1388,7 @@ test("a local deadline stops the active command round without a fresh timeout", 
     }),
     { code: "FC_REMOTE_UNAVAILABLE" },
   );
-  assert.equal(fetchCalls, 2);
+  assert.equal(fetchCalls, 3);
   assert.equal(toolCalls, 2);
   assert.ok(performance.now() - started < 500);
 });

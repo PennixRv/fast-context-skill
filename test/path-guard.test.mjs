@@ -51,7 +51,9 @@ test("PathGuard keeps canonical, deny, and symlink boundaries across async tools
     const listing = await guard.listDirectory("/codebase", budget);
     assert.equal(listing.status, "complete");
     assert.deepEqual(listing.entries.map((entry) => entry.name), ["root.mjs", "src"]);
-    assert.match((await guard.readText("/codebase/src/a.mjs", 2, 2, budget)).output, /^2:second$/);
+    const read = await guard.readText("/codebase/src/a.mjs", 2, 2, budget);
+    assert.match(read.output, /^2:second$/);
+    assert.deepEqual(read.read_range, { start_line: 2, end_line: 2 });
     assert.doesNotMatch((await guard.tree("/codebase", 4, budget)).output, /\.git|escape|\.env/);
 
     const shallow = await guard.glob("/codebase", "src/*.mjs", "file", budget);

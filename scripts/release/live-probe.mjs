@@ -75,6 +75,7 @@ function summarizeResult(label, processResult) {
       candidate_count: 0,
       candidates: [],
       failure: failureCode(processResult.stderr, processResult.overflow),
+      stdout_shape: processResult.stdout.length === 0 ? "empty" : "not_parsed",
       target_found: false,
       pseudo_complete_empty: false,
     };
@@ -89,6 +90,7 @@ function summarizeResult(label, processResult) {
       candidate_count: 0,
       candidates: [],
       failure: "FC_PROTOCOL_INVALID",
+      stdout_shape: processResult.stdout.trim().length === 0 ? "empty" : "invalid_json",
       target_found: false,
       pseudo_complete_empty: false,
     };
@@ -114,6 +116,7 @@ function summarizeResult(label, processResult) {
     candidate_count: candidates.length,
     candidates,
     failure: null,
+    stdout_shape: "json",
     target_found: target,
     pseudo_complete_empty: pseudoCompleteEmpty,
   };
@@ -131,6 +134,41 @@ function summarizedCandidates(value) {
         end_line: candidate.end_line,
       }))
     : [];
+}
+
+function summarizeProtocolEvents(events) {
+  const preflight = events
+    .filter((event) => event?.event === "rate_limit_preflight" && typeof event.status === "string")
+    .map((event) => event.status);
+  const streamRetries = events.filter((event) => event?.event === "stream_retry").length;
+  const toolCalls = events
+    .filter((event) => typeof event?.tool_name === "string" && Number.isSafeInteger(event?.turn))
+    .map((event) => ({
+      turn: event.turn,
+      final_turn: event.final_turn === true,
+      tool_name: event.tool_name,
+    }));
+  return { preflight, stream_retries: streamRetries, tool_calls: toolCalls };
+}
+
+function transportStage(url) {
+  if (typeof url === "string" && url.includes("GetUserJwt")) return "jwt";
+  if (typeof url === "string" && url.includes("CheckUserMessageRateLimit")) return "preflight";
+  return "stream";
+}
+
+function observedFetch(events) {
+  return async (url, options) => {
+    const stage = transportStage(url);
+    try {
+      const response = await fetch(url, options);
+      events.push({ stage, status: response.status });
+      return response;
+    } catch (error) {
+      events.push({ stage, status: "transport_failure" });
+      throw error;
+    }
+  };
 }
 
 function writeEvent(event, value) {
@@ -183,17 +221,19 @@ async function invalidKeyProbe(projectRoot) {
   };
 }
 
-async function diagnose(projectRoot) {
+async function diagnose(projectRoot, queries = QUERY_VARIANTS) {
   const credential = await resolveCredential({ environment: controlledEnvironment() });
   if (!credential) throw new Error("credential discovery failed");
   const summaries = [];
-  for (const [index, query] of QUERY_VARIANTS.entries()) {
+  for (const [index, query] of queries.entries()) {
     const protocol_events = [];
+    const transport_events = [];
     try {
       const result = await search({
         query,
         guard: new PathGuard(projectRoot),
         apiKey: credential.apiKey,
+        fetchImpl: observedFetch(transport_events),
         onProtocolEvent(event) { protocol_events.push(event); },
       });
       const candidates = summarizedCandidates(result.candidates);
@@ -205,7 +245,8 @@ async function diagnose(projectRoot) {
         projection: result.projection,
         coverage_reasons: Array.isArray(result.coverage?.reasons) ? result.coverage.reasons : [],
         failure: null,
-        protocol_events,
+        protocol: summarizeProtocolEvents(protocol_events),
+        transport: transport_events,
       });
     } catch (error) {
       summaries.push({
@@ -214,7 +255,8 @@ async function diagnose(projectRoot) {
         candidates: [],
         failure: typeof error?.code === "string" ? error.code : "FC_REMOTE_UNAVAILABLE",
         protocol_reason: typeof error?.protocolReason === "string" ? error.protocolReason : null,
-        protocol_events,
+        protocol: summarizeProtocolEvents(protocol_events),
+        transport: transport_events,
       });
     }
   }
@@ -309,7 +351,10 @@ async function runProbe() {
   const projectRoot = join(temporaryDirectory, "ledger-recall");
   try {
     cpSync(FIXTURE_DIRECTORY, projectRoot, { recursive: true });
-    await diagnose(projectRoot);
+    const queries = process.argv.includes("--diagnose-retained")
+      ? Array.from({ length: 10 }, () => RETAINED_QUERY)
+      : QUERY_VARIANTS;
+    await diagnose(projectRoot, queries);
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }

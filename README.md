@@ -28,11 +28,11 @@ The accepted options are `--project`, `--query`, bounded `--max-results`,
 repeatable relative `--deny`, standalone `--no-external`, and standalone
 `--help`. `--no-external` exits with `FC_EXTERNAL_DISABLED` before inspecting
 credentials, importing the remote core, or opening a network request. Missing
-credentials produce `FC_KEY_MISSING`; `401/403`, timeout, transport, `5xx`,
-and malformed protocol responses use distinct fixed `FC_*` diagnostics. The
-CLI never prints, stores, or logs credentials. It rejects metadata, secrets,
-generated output, and paths outside the canonical project root before any
-remote request.
+credentials produce `FC_KEY_MISSING`; `401/403`, timeout, transport or remote
+capacity exhaustion, `5xx`, and malformed protocol responses use distinct fixed
+`FC_*` diagnostics. The CLI never prints, stores, or logs credentials. It
+rejects metadata, secrets, generated output, and paths outside the canonical
+project root before any remote request.
 
 Use the returned paths only as hints and verify them with local tools. A single
 JSON result is emitted on stdout; fixed `FC_*` diagnostics are emitted on
@@ -47,6 +47,31 @@ subprocesses, tool commands, and model rounds. Local enumeration limits visited
 entries, directories, depth, files, matches, and output bytes. Child processes
 run without a shell and are terminated and reaped when the caller cancels or
 the deadline expires.
+
+The live path performs one bounded `CheckUserMessageRateLimit` preflight after
+JWT acquisition and before any repository map or answer/tool stream. It uses
+the same remaining deadline and a fixed model identifier. A rejected preflight
+stops before inspecting project files or opening the stream and remains a fixed
+redacted `FC_*` failure.
+
+When the stream reports a fixed transient capacity or availability rejection,
+the client may retry that unchanged request at most twice within the same
+deadline. This is not an additional model or tool round; malformed protocol,
+authentication, timeout, output-limit, and server failures still stop safely.
+
+For behavior queries, returned candidates prioritize locally read implementation
+files; related tests are supplemental rather than a standalone substitute when
+the implementation is available. The protocol permits one fixed tool-envelope
+correction during local-tool work and one during the final answer-only request.
+Neither correction accepts prose or relaxes local path/range checks.
+
+For remote protocol grounding only, a successful guarded `readfile` result also
+contains an internal `read_range` with the exact inclusive bounds of the
+numbered rows it returned. The prompt requires a candidate range to copy those
+bounds rather than estimate a line number, and candidate projection reopens the
+file and validates the range again. `read_range` is not a public CLI JSON field;
+it is absent for an empty read and never weakens PathGuard, output budgets, or
+the final same-version range check.
 
 Successful JSON uses `status: "complete"` or `status: "truncated"` and includes
 local `coverage` counts, fixed reasons, and continuation information when

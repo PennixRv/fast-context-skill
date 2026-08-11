@@ -4,11 +4,11 @@
 
 修复分支从 `origin/main` 的 `604d741056acbf1bf84bdc3a71dedff9aea2fdb3` 创建。该提交是 `v0.1.5` tag 的后代；tag 与当前基线的 `package.json` 均为 `0.1.5`，并且 package allowlist 中的运行时文件没有差异。因此它包含实际已发布的 `0.1.5` 打包源码，同时避免从父仓库旧 Gitlink 的 detached 提交实施。
 
-本设计只处理远端工具对话的终态约束和候选投影状态。Connect 解码、响应预算、凭据解析、PathGuard、ResourceBudget 和本地工具执行器沿用既有严格实现。
+本设计处理远端工具对话的互操作性、终态约束和候选投影状态。Connect 解码、响应预算、凭据解析、PathGuard、ResourceBudget 和本地工具执行器沿用既有严格实现。取得 JWT 后，在仓库地图和流请求前追加与上游相同的 `CheckUserMessageRateLimit` 预检，固定使用 `MODEL_SWE_1_6_FAST`；请求体 gzip、共享当前剩余 deadline，且失败关闭，不采纳上游的网络失败后继续策略。仅对 `resource_exhausted`、`unavailable` 或 HTTP `429` 的同一流请求允许最多两次短退避；每次重新读取同一 budget 的剩余时间，不增加工具轮次或命令。
 
 ## 状态机修复
 
-当前循环固定为三轮允许 `restricted_exec` 的本地工具请求和一轮 answer-only 请求。维持该上限，并在第三个有效工具结果写入对话后追加一个 `role: user` 消息。消息明确要求：
+当前循环最多允许三轮 `restricted_exec` 的本地工具请求和一轮 answer-only 请求。本地证据充分时允许提前 `answer`；维持上限，并仅在第三个有效工具结果写入对话后追加一个 `role: user` 消息。消息明确要求：
 
 - 现在只能调用 `answer`；不得再请求 `restricted_exec`；
 - 候选必须使用 `<file path="/codebase/relative"><range>start-end</range></file>`；范围为正的闭区间，且只能基于本地工具已返回的证据；
@@ -16,7 +16,7 @@
 
 终态请求仍通过 `toolDefinitions({ allowRestrictedExec: false })` 仅暴露 `answer`。若解出的终态调用为 `restricted_exec` 或其他非 `answer` 工具，抛出 `FC_PROTOCOL_INVALID`。错误对象附带非枚举或内部可读的 `protocolReason`，值为固定枚举，例如 `answer_only_restricted_exec`，不会由 CLI 序列化，不含请求、响应、路径或凭据。
 
-远端工具调用 JSON 的修正仍只允许 `MAX_TOOL_FORMAT_RETRIES = 1`。第一次解析失败后追加不含远端文本的固定纠正用户消息，并使用同一个 `ResourceBudget` 的剩余时间发出一次替代请求；不补偿工具回合、不添加新轮次。候选因格式或范围被拒绝时，最多还有一次只暴露 `answer` 的格式修正；其空答复不能把第一次的候选证据降格为完整无结果。
+远端工具调用 JSON 的修正仍只允许每个阶段 `MAX_TOOL_FORMAT_RETRIES = 1`。第一次解析失败后追加不含远端文本的固定纠正用户消息，并使用同一个 `ResourceBudget` 的剩余时间发出一次替代请求；可执行工具阶段与最终 answer-only 阶段的计数分离，前者不消耗后者的唯一恢复机会，且任一阶段不补偿工具回合、不添加新轮次。候选因格式或范围被拒绝时，最多还有一次只暴露 `answer` 的格式修正；其空答复不能把第一次的候选证据降格为完整无结果。提示词把已读实现文件置于相关测试之前，但候选仍须本地复核。结构合法的 Connect EndStream `error` 不再被混同为帧解析失败：鉴权、超时、可用性/容量与服务端类别分别映射为既有固定 `FC_*`，而错误正文继续丢弃。
 
 ## 提示词兼容策略
 
@@ -51,6 +51,7 @@ fork 的压缩提示词保留安全禁止项，却缺少上游 v1.3.2 具备的�
 ## 测试设计
 
 在 `test/fixtures/ledger-recall/` 放置等价四文件 TypeScript 夹具。`test/core.test.mjs` 使用临时副本、注入的 `fetchImpl` 和固定 Connect frames，不访问真实服务。测试直接解码发出的 protobuf 请求，以断言 force-answer 消息、终态工具定义和输出计数；响应正文只由合成非敏感字符串构成。
+每个成功的受控 `readfile` 结果另携带仅供协议使用的 `read_range`，其值由实际返回的编号行计算；测试断言下一轮请求和终态 force-answer 指令只允许复用这一范围。该字段不进入 CLI JSON，候选投影仍在同一文件版本上重复范围复核。
 
 真实探针在所有确定性验证后单独执行：从该夹具临时副本运行源入口和 tarball 入口，`env -u WINDSURF_API_KEY` 依赖已登录 Devin 发现。每次仅记录状态、候选数、经过本地核验的相对路径/范围、固定失败分类和终态工具名；Connect 错误仅保留固定内部类别，不保留远端正文、JWT 或 key。十次保留查询和三种等价措辞均须达成 PRD 门槛才允许发布。
 
