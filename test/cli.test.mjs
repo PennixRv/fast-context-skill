@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -10,6 +11,36 @@ function stream() {
   let value = "";
   return { write(chunk) { value += chunk; }, value: () => value };
 }
+
+test("direct CLI entry awaits bounded credential discovery before exiting", () => {
+  const root = mkdtempSync(join(tmpdir(), "fast-context-cli-entry-"));
+  const home = mkdtempSync(join(tmpdir(), "fast-context-cli-home-"));
+  try {
+    const environment = { ...process.env, HOME: home };
+    delete environment.WINDSURF_API_KEY;
+    const result = spawnSync(process.execPath, [
+      "scripts/fast-context-search.mjs",
+      "--project",
+      root,
+      "--query",
+      "find candidate",
+    ], {
+      cwd: process.cwd(),
+      env: environment,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "FC_KEY_MISSING: WINDSURF_API_KEY is required\n");
+    const entry = readFileSync("scripts/fast-context-search.mjs", "utf8");
+    assert.match(entry, /const cliKeepalive = setInterval/);
+    assert.match(entry, /await runCli\(/);
+    assert.match(entry, /clearInterval\(cliKeepalive\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("CLI accepts only the finite argument grammar", () => {
   const root = mkdtempSync(join(tmpdir(), "fast-context-cli-"));

@@ -35,11 +35,27 @@ test("staged tarball installs offline and the runtime CLI does not need maintain
     assert.equal(disabled.status, 1);
     assert.equal(disabled.stdout, "");
     assert.equal(disabled.stderr, "FC_EXTERNAL_DISABLED: external search is disabled by the caller\n");
+    const missingCredential = spawnSync(process.execPath, [
+      join(packageRoot, "scripts", "fast-context-search.mjs"),
+      "--project", installDirectory,
+      "--query", "query",
+    ], {
+      encoding: "utf8",
+      env: { HOME: temporaryDirectory },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.equal(missingCredential.status, 1);
+    assert.equal(missingCredential.stdout, "");
+    assert.equal(missingCredential.stderr, "FC_KEY_MISSING: WINDSURF_API_KEY is required\n");
     assert.equal(existsSync(join(packageRoot, "scripts", "lib", "credentials.mjs")), true);
     assert.equal(existsSync(join(packageRoot, "scripts", "lib", "devin-credential-helper.mjs")), true);
     assert.equal(
       readFileSync(join(packageRoot, "scripts", "fast-context-search.mjs"), "utf8"),
       readFileSync("scripts/fast-context-search.mjs", "utf8"),
+    );
+    assert.match(
+      readFileSync(join(packageRoot, "scripts", "fast-context-search.mjs"), "utf8"),
+      /await runCli\(/,
     );
     const installedCore = readFileSync(join(packageRoot, "scripts", "lib", "core.mjs"), "utf8");
     assert.equal(installedCore, readFileSync("scripts/lib/core.mjs", "utf8"));

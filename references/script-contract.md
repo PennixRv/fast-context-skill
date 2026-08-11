@@ -81,9 +81,10 @@ aligned with `status`. `coverage.visited` is the shared invocation-wide count;
 identifies the last bounded frontier when one is available.
 
 `projection` contains counts only. `remote_candidates` is the number of remote
-`<file>` markers, `accepted_candidates` is the number that passed local
-PathGuard/range validation, `rejected_candidates` is the number locally
-rejected for format, path, range, duplicate, or version reasons, and
+candidate ranges (a `<file>` may contain more than one `<range>`),
+`accepted_candidates` is the number that passed local PathGuard/range
+validation, `rejected_candidates` is the number locally rejected for format,
+path, range, duplicate, or version reasons, and
 `unprocessed_candidates` is the number left beyond `--max-results`. No field
 contains rejected paths, ranges, XML, or remote prose. `rejection_reasons` is
 the deduplicated fixed local category list for rejected entries. `complete`
@@ -132,7 +133,10 @@ remaining deadline; it neither forwards remote text nor creates a new tool
 round. A projection rejection may similarly receive one answer-only correction
 when the rejection is format/range related. The client rejects a terminal
 non-answer response as `FC_PROTOCOL_INVALID`; its internal fixed protocol
-reason is never emitted by the CLI. A valid remote EndStream error remains
+reason is never emitted by the CLI. A tool envelope may have a bounded remote
+reasoning prefix, but the client discards that prefix and never replays it in a
+later request; non-whitespace JSON suffixes remain malformed. A valid remote
+EndStream error remains
 failure-closed but maps to its fixed service category rather than being
 misreported as malformed Connect data. The terminal and correction requests
 consume the same monotonic deadline and never create a fallback candidate

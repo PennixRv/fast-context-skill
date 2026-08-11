@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,6 +16,29 @@ import {
 import { parseArguments } from "../scripts/release/publish-release.mjs";
 import { verifyAttestedReleaseArtifact } from "../scripts/release/preflight-release.mjs";
 import { attestationPathForTag, packageArchivePaths } from "../scripts/release/verify-release-evidence.mjs";
+
+test("the diagnostic live-probe entry awaits credential discovery before it exits", () => {
+  const temporaryHome = mkdtempSync(join(tmpdir(), "fast-context-live-probe-home-"));
+  try {
+    const environment = { ...process.env, HOME: temporaryHome };
+    delete environment.WINDSURF_API_KEY;
+    const result = spawnSync(process.execPath, ["scripts/release/live-probe.mjs", "--diagnose"], {
+      cwd: process.cwd(),
+      env: environment,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "live probe failed\n");
+    const liveProbe = readFileSync("scripts/release/live-probe.mjs", "utf8");
+    assert.match(liveProbe, /const probeKeepalive = setInterval/);
+    assert.match(liveProbe, /clearInterval\(probeKeepalive\)/);
+    assert.match(liveProbe, /const PROBE_INTER_RUN_DELAY_MS = 3_000/);
+    assert.match(liveProbe, /if \(index > 0\) await waitForProbeInterval\(\)/);
+  } finally {
+    rmSync(temporaryHome, { recursive: true, force: true });
+  }
+});
 
 test("tag verifier requires an annotated, exact, clean version tag", () => {
   const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;

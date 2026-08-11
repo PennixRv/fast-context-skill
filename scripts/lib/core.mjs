@@ -325,7 +325,7 @@ async function fetchJwt(apiKey, fetchImpl, timeoutMs, signal) {
       "Accept-Encoding": "gzip",
       "Content-Type": "application/proto",
       "Connect-Protocol-Version": "1",
-      "User-Agent": "connect-go/1.18.1",
+      "User-Agent": CONNECT_USER_AGENT,
     },
     timeoutMs,
     signal,
@@ -488,7 +488,7 @@ function systemPrompt(maxResults) {
     "Return files and complete semantic blocks relevant to the requested behavior, including verified implementation and tests when useful.",
     "Use restricted_exec only with /codebase paths.",
     "Never request hidden, credential, generated, or repository metadata paths.",
-    "For every response, output exactly one tool envelope. Its first character is [, and it has no Markdown, prose, thinking, code fence, comment, or trailing comma.",
+    "Think step-by-step before each tool request. Only an exact tool envelope is protocol-bearing: the client discards all text outside it, never executes that text, and never sends it back in a later request.",
     "A restricted call is exactly [TOOL_CALLS]restricted_exec[ARGS] followed immediately by one complete JSON object with one to four command1 through command4 properties.",
     "Each command is exactly one declared object: rg needs type, pattern, path; readfile needs type, file, start_line, end_line; tree needs type, path, levels; ls needs type, path; glob needs type, pattern, path.",
     "Example: [TOOL_CALLS]restricted_exec[ARGS]{\"command1\":{\"type\":\"rg\",\"pattern\":\"symbol\",\"path\":\"/codebase/src\"},\"command2\":{\"type\":\"readfile\",\"file\":\"/codebase/src/example.ts\",\"start_line\":1,\"end_line\":40}}",
@@ -498,11 +498,11 @@ function systemPrompt(maxResults) {
     "A candidate is not established by a tree, ls, glob, or rg hit alone. Include complete relevant functions/classes and direct tests only after reading that exact file.",
     "For a behavior query, the verified implementation is primary. When a direct test is relevant, locate and read the implementation it exercises before answering; never return a test as the only candidate when a verified implementation is available.",
     "Use no more than three restricted_exec rounds. Once the local evidence is sufficient, call answer immediately; never request another tool turn solely to use a remaining round.",
-    "readfile returns numbered rows as N:source and a locally generated read_range with its exact inclusive bounds. Before returning each candidate, copy exactly one positive N-N range from that read_range and wholly within those rows; never estimate paths or line numbers.",
+    "readfile returns numbered rows as N:source and a locally generated read_range with its exact inclusive bounds. Before returning each candidate range, copy its positive N-N bounds from that read_range and keep it wholly within those rows; never estimate paths or line numbers.",
     "After at most three restricted_exec calls, the following turn must return answer using only the locally verified evidence available.",
     "Finish exactly as [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object with an answer field.",
-    "The answer field contains an <ANSWER> root with <file path=\"/codebase/relative\"><range>start-end</range></file> entries. Each file has exactly one range, and every entry comes from a prior readfile result. Do not include a file when its range cannot be copied from N:source rows.",
-    "Example: [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER><file path=\\\"/codebase/src/example.ts\\\"><range>10-20</range></file></ANSWER>\"}",
+    "The answer field contains an <ANSWER> root with <file path=\"/codebase/relative\"><range>start-end</range></file> entries. A file may contain multiple ranges; every positive range comes from a prior readfile result. Do not include a file or range when it cannot be copied from N:source rows.",
+    "Example: [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER><file path=\\\"/codebase/src/example.ts\\\"><range>10-20</range><range>40-60</range></file></ANSWER>\"}",
     "When no relevant candidate exists after the available local evidence, return exactly [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER></ANSWER>\"}.",
     `Return at most ${maxResults} candidate entries and never guess paths or line ranges.`,
   ].join("\n");
@@ -513,8 +513,8 @@ function forceAnswerPrompt(maxResults) {
     "You have no tool turns left. Call answer now.",
     "Do not request restricted_exec or any other tool.",
     "Your entire response must be exactly [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object.",
-    "Return only locally evidenced candidates inside <ANSWER> as <file path=\"/codebase/relative\"><range>start-end</range></file>.",
-    "For every candidate, copy its positive N-N range exactly from a prior readfile read_range and keep it wholly within the returned N:source rows.",
+    "Return only locally evidenced candidates inside <ANSWER> as <file path=\"/codebase/relative\"><range>start-end</range></file> entries; a file may contain multiple ranges.",
+    "For every candidate range, copy its positive N-N bounds exactly from a prior readfile read_range and keep it wholly within the returned N:source rows.",
     "If there are no such candidates, use exactly <ANSWER></ANSWER>.",
     `Return at most ${maxResults} candidate entries; do not guess paths or line ranges.`,
   ].join("\n");
@@ -589,6 +589,8 @@ function parseToolCall(text) {
   }
   if (end < 0) throw retryableToolFormatError();
   const json = source.slice(0, end);
+  const trailing = source.slice(end).trim();
+  if (trailing !== "" && trailing !== "</s>") throw retryableToolFormatError();
   if (Buffer.byteLength(json, "utf8") > MAX_TOOL_ARGS_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
   let args;
   try {
@@ -715,67 +717,74 @@ async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, ex
 
   const fileExpression = /<file\s+path=(["'])([^"']+)\1>([\s\S]*?)<\/file>/g;
   let matchedFileElements = 0;
+  let remoteCandidates = 0;
   let rejectedCandidates = 0;
   let unprocessedCandidates = 0;
   const rejectionReasons = new Set();
   let match;
   while ((match = fileExpression.exec(answer)) !== null) {
     matchedFileElements += 1;
-    if (candidates.length >= maxResults) {
-      unprocessedCandidates += 1;
-      continue;
-    }
-    const range = match[3].match(/<range>([1-9]\d*)-([1-9]\d*)<\/range>/);
-    if (!range) {
+    const ranges = [...match[3].matchAll(/<range>([1-9]\d*)-([1-9]\d*)<\/range>/g)];
+    if (ranges.length === 0) {
+      remoteCandidates += 1;
       rejectedCandidates += 1;
       rejectionReasons.add("remote_candidate_missing_range");
       continue;
     }
-    const startLine = Number(range[1]);
-    const endLine = Number(range[2]);
-    let validated;
-    try {
-      validated = await guard.validateCandidateRange(match[2], startLine, endLine, budget);
-    } catch (error) {
-      if (budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw networkError();
-      rejectedCandidates += 1;
-      rejectionReasons.add(
-        String(error?.code || "").startsWith("FC_PATH")
-          ? "remote_candidate_path_rejected"
-          : "remote_candidate_range_rejected",
-      );
-      continue;
+    for (const range of ranges) {
+      remoteCandidates += 1;
+      if (candidates.length >= maxResults) {
+        unprocessedCandidates += 1;
+        continue;
+      }
+      const startLine = Number(range[1]);
+      const endLine = Number(range[2]);
+      let validated;
+      try {
+        validated = await guard.validateCandidateRange(match[2], startLine, endLine, budget);
+      } catch (error) {
+        if (budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw networkError();
+        rejectedCandidates += 1;
+        rejectionReasons.add(
+          String(error?.code || "").startsWith("FC_PATH")
+            ? "remote_candidate_path_rejected"
+            : "remote_candidate_range_rejected",
+        );
+        continue;
+      }
+      if (!validated) {
+        rejectedCandidates += 1;
+        rejectionReasons.add(
+          budget.snapshot().reasons.includes("candidate_changed")
+            ? "remote_candidate_file_changed"
+            : "remote_candidate_range_rejected",
+        );
+        continue;
+      }
+      const identity = `${validated.relativePath}:${validated.startLine}-${validated.endLine}`;
+      if (seen.has(identity)) {
+        rejectedCandidates += 1;
+        rejectionReasons.add("remote_candidate_duplicate");
+        continue;
+      }
+      seen.add(identity);
+      candidates.push({
+        path: validated.relativePath,
+        start_line: validated.startLine,
+        end_line: validated.endLine,
+        reason: "local_range_validated",
+      });
     }
-    if (!validated) {
-      rejectedCandidates += 1;
-      rejectionReasons.add(
-        budget.snapshot().reasons.includes("candidate_changed")
-          ? "remote_candidate_file_changed"
-          : "remote_candidate_range_rejected",
-      );
-      continue;
-    }
-    if (seen.has(validated.relativePath)) {
-      rejectedCandidates += 1;
-      rejectionReasons.add("remote_candidate_duplicate");
-      continue;
-    }
-    seen.add(validated.relativePath);
-    candidates.push({
-      path: validated.relativePath,
-      start_line: validated.startLine,
-      end_line: validated.endLine,
-      reason: "local_range_validated",
-    });
   }
   const malformedCandidates = Math.max(0, candidateMarkers.length - matchedFileElements);
   if (malformedCandidates > 0) rejectionReasons.add("remote_candidate_malformed");
+  remoteCandidates += malformedCandidates;
   rejectedCandidates += malformedCandidates;
   const coverage = searchCoverage(budget, repoMap, executor);
   return answerResult({
     candidates,
     projection: {
-      remote_candidates: candidateMarkers.length,
+      remote_candidates: remoteCandidates,
       accepted_candidates: candidates.length,
       rejected_candidates: rejectedCandidates,
       unprocessed_candidates: unprocessedCandidates,

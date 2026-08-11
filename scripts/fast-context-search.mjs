@@ -127,9 +127,14 @@ export async function runCli({
 }
 
 if (process.argv[1] && process.argv[1].endsWith("fast-context-search.mjs")) {
-  runCli({ argv: process.argv.slice(2) }).then((status) => {
-    process.exitCode = status;
-  });
+  // Node may unref a pending fetch socket. Keep this one-shot CLI alive until
+  // the bounded credential and search promise settles, then always clear it.
+  const cliKeepalive = setInterval(() => {}, 2 ** 31 - 1);
+  try {
+    process.exitCode = await runCli({ argv: process.argv.slice(2) });
+  } finally {
+    clearInterval(cliKeepalive);
+  }
 }
 
 export { MAX_QUERY_LENGTH, MAX_RESULTS, USAGE };

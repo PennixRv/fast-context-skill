@@ -117,9 +117,9 @@ function ledgerFixture() {
   return { root, temporaryRoot };
 }
 
-function answerFrame(answer = '<file path="/codebase/src/candidate.mjs"><range>1-1</range></file>') {
+function answerFrame(answer = '<file path="/codebase/src/candidate.mjs"><range>1-1</range></file>', options = {}) {
   return protoString(
-    `[TOOL_CALLS]answer[ARGS]${JSON.stringify({ answer })}`,
+    `${options.prefix || ""}[TOOL_CALLS]answer[ARGS]${JSON.stringify({ answer })}${options.suffix || ""}`,
   );
 }
 
@@ -129,8 +129,10 @@ function whitespaceAnswerFrame(answer = '<file path="/codebase/src/candidate.mjs
   );
 }
 
-function restrictedExecFrame(commands) {
-  return protoString(`[TOOL_CALLS]restricted_exec[ARGS]${JSON.stringify(commands)}`);
+function restrictedExecFrame(commands, options = {}) {
+  return protoString(
+    `${options.prefix || ""}[TOOL_CALLS]restricted_exec[ARGS]${JSON.stringify(commands)}${options.suffix || ""}`,
+  );
 }
 
 function fourTreeCommands() {
@@ -173,6 +175,7 @@ test("search preflights the upstream model route and locally revalidates candida
     assert.ok(result.coverage.visited.entries >= 2);
     assert.equal(calls.length, 3);
     assert.equal(calls[0].options.headers["Accept-Encoding"], "gzip");
+    assert.equal(calls[0].options.headers["User-Agent"], "connect-go/1.18.1 (go1.25.5)");
     assert.match(calls[1].url, /CheckUserMessageRateLimit$/);
     assert.equal(calls[1].options.headers["Accept-Encoding"], "gzip");
     assert.equal(calls[1].options.headers["Content-Encoding"], "gzip");
@@ -197,7 +200,8 @@ test("search preflights the upstream model route and locally revalidates candida
     assert.match(prompt, /verified implementation is primary/);
     assert.match(prompt, /never return a test as the only candidate/);
     assert.match(prompt, /one to four command1 through command4 properties/);
-    assert.match(prompt, /no Markdown, prose, thinking, code fence, comment, or trailing comma/);
+    assert.match(prompt, /Think step-by-step before each tool request/);
+    assert.match(prompt, /client discards all text outside it/);
     assert.match(prompt, /\[TOOL_CALLS\]answer\[ARGS\]/);
     const initialRequest = decodeRequestFrame(calls[2].options.body);
     assert.equal(initialRequest.includes(Buffer.from("Problem Statement: find candidate")), true);
@@ -326,6 +330,34 @@ test("one malformed remote tool envelope retries within the shared request budge
       end_line: 1,
       reason: "local_range_validated",
     }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("trailing tool text receives one bounded correction and is never replayed", async () => {
+  const root = fixture();
+  let streamCalls = 0;
+  const requests = [];
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
+        requests.push(decodeRequestFrame(options.body));
+        streamCalls += 1;
+        return response(connectResponse([
+          streamCalls === 1
+            ? answerFrame(undefined, { suffix: " REMOTE_TRAILING_SENTINEL" })
+            : answerFrame(),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "complete");
+    assert.equal(extractStrings(requests[1]).some((value) => value.includes("REMOTE_TRAILING_SENTINEL")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -895,6 +927,37 @@ test("the final protocol turn declares answer only after three bounded local-too
   }
 });
 
+test("a tool-envelope prefix is discarded and never replayed to the remote service", async () => {
+  const root = fixture();
+  const requests = [];
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if ((url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))) return response(protoString("eyJ.synthetic.jwt"));
+        requests.push(decodeRequestFrame(options.body));
+        streamCalls += 1;
+        return response(connectResponse([
+          streamCalls === 1
+            ? restrictedExecFrame(
+              { command1: { type: "tree", path: "/codebase", levels: 1 } },
+              { prefix: "REMOTE_THINKING_SENTINEL\\n" },
+            )
+            : answerFrame(),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(result.status, "complete");
+    assert.equal(streamCalls, 2);
+    assert.equal(extractStrings(requests[1]).some((value) => value.includes("REMOTE_THINKING_SENTINEL")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a terminal restricted_exec has a stable non-sensitive protocol reason", async () => {
   const root = fixture();
   let streamCall = 0;
@@ -956,6 +1019,46 @@ test("the controlled ledger fixture projects a locally valid candidate", async (
     assert.deepEqual(result.projection, {
       remote_candidates: 1,
       accepted_candidates: 1,
+      rejected_candidates: 0,
+      unprocessed_candidates: 0,
+      rejection_reasons: [],
+    });
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a single file may carry multiple locally validated candidate ranges", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
+        ? response(protoString("eyJ.synthetic.jwt"))
+        : response(connectResponse([answerFrame(
+          '<ANSWER><file path="/codebase/src/ledger/repair.ts"><range>1-12</range><range>13-24</range></file></ANSWER>',
+        )]), { headers: { "Connect-Content-Encoding": "gzip" } }),
+    });
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.candidates, [
+      {
+        path: "src/ledger/repair.ts",
+        start_line: 1,
+        end_line: 12,
+        reason: "local_range_validated",
+      },
+      {
+        path: "src/ledger/repair.ts",
+        start_line: 13,
+        end_line: 24,
+        reason: "local_range_validated",
+      },
+    ]);
+    assert.deepEqual(result.projection, {
+      remote_candidates: 2,
+      accepted_candidates: 2,
       rejected_candidates: 0,
       unprocessed_candidates: 0,
       rejection_reasons: [],

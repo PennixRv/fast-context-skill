@@ -14,6 +14,7 @@ const PROJECT_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
 const FIXTURE_DIRECTORY = join(PROJECT_ROOT, "test", "fixtures", "ledger-recall");
 const SOURCE_CLI = join(PROJECT_ROOT, "scripts", "fast-context-search.mjs");
 const MAX_CAPTURED_BYTES = 128 * 1024;
+const PROBE_INTER_RUN_DELAY_MS = 3_000;
 const RETAINED_QUERY = "Where does the application resume financial records left in a partially committed state after an interrupted batch?";
 const QUERY_VARIANTS = [
   RETAINED_QUERY,
@@ -148,7 +149,21 @@ function summarizeProtocolEvents(events) {
       final_turn: event.final_turn === true,
       tool_name: event.tool_name,
     }));
-  return { preflight, stream_retries: streamRetries, tool_calls: toolCalls };
+  const localTools = events
+    .filter((event) => event?.event === "local_tool")
+    .map((event) => ({
+      turn: Number.isSafeInteger(event.turn) ? event.turn : null,
+      command_type: typeof event.command_type === "string" ? event.command_type : "invalid",
+      status: typeof event.status === "string" ? event.status : "failure",
+      reason: typeof event.reason === "string" ? event.reason : null,
+      code: typeof event.code === "string" ? event.code : null,
+    }));
+  return {
+    preflight,
+    stream_retries: streamRetries,
+    tool_calls: toolCalls,
+    local_tools: localTools,
+  };
 }
 
 function transportStage(url) {
@@ -175,9 +190,14 @@ function writeEvent(event, value) {
   process.stdout.write(`${JSON.stringify({ event, ...value })}\n`);
 }
 
+function waitForProbeInterval() {
+  return new Promise((resolveWait) => setTimeout(resolveWait, PROBE_INTER_RUN_DELAY_MS));
+}
+
 async function probeCli(cliPath, projectRoot, queries, labelPrefix, environment) {
   const summary = [];
   for (const [index, query] of queries.entries()) {
+    if (index > 0) await waitForProbeInterval();
     const processResult = await run(process.execPath, [
       cliPath,
       "--project",
@@ -360,7 +380,14 @@ async function runProbe() {
   }
 }
 
-runProbe().catch(() => {
+// Node may unref a pending fetch socket. Keep this release-only diagnostic
+// process alive until its awaited bounded work settles, then always clear it.
+const probeKeepalive = setInterval(() => {}, 2 ** 31 - 1);
+try {
+  await runProbe();
+} catch {
   process.stderr.write("live probe failed\n");
   process.exitCode = 1;
-});
+} finally {
+  clearInterval(probeKeepalive);
+}

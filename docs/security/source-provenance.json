@@ -43,8 +43,8 @@
       "path": "README.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Local-first operating, bounded rate preflight and capacity retry, staged answer correction, locally grounded read ranges, implementation-priority projection, and fixed remote failure documentation.",
-      "shipped_sha256": "5c5d9c72c46043ae74bd8255c76719925017fd3e1859dbb8042522b2fd575978"
+      "change_summary": "Local-first operating, bounded rate preflight and capacity retry, staged answer correction, locally grounded multi-range answers, implementation-priority projection, and fixed remote failure documentation.",
+      "shipped_sha256": "e318453f56fa2fb71beda8e5aa2e2f80c4bb90540b72f25367e465124c43f28c"
     },
     {
       "path": "SKILL.md",
@@ -71,22 +71,22 @@
       "path": "references/script-contract.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI, bounded upstream rate preflight, capacity retry, staged format correction and early answer, locally grounded read ranges, candidate projection, credential-source, and redacted remote-error contract.",
-      "shipped_sha256": "7e598fb29803b41d3891a92d53ee458760cb9126203e003a008abef5cc07f8ca"
+      "change_summary": "Finite CLI, bounded upstream rate preflight, capacity retry, staged format correction and early answer, locally grounded multi-range answers, credential-source, and redacted remote-error contract.",
+      "shipped_sha256": "e2c875b626ef474e70729b20f711120f51b6f87809b14ed05189f00da4c05322"
     },
     {
       "path": "references/source-provenance.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "9986b962c3538acd78f2db21c23453a7a13d23552030b2a69483cc49d7e2e3cf"
+      "shipped_sha256": "43b65027f21b9c9c09e8c912495d506989fa1a7f8f11b5c7756bea3ca0058a95"
     },
     {
       "path": "scripts/fast-context-search.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI parser, explicit opt-out, and pre-network credential boundary.",
-      "shipped_sha256": "0235c4a7b227a300bcf9ee381e822c3f858934b649837be2009d39a0e780a0bb"
+      "change_summary": "Finite CLI parser, explicit opt-out, pre-network credential boundary, and awaited bounded search lifecycle.",
+      "shipped_sha256": "2d14358192d7f905220bfcd4be530f843e35d5ee67196c01e6096bc1fcdc4ef1"
     },
     {
       "path": "scripts/lib/LICENSE.fast-context-mcp",
@@ -103,8 +103,8 @@
       "path": "scripts/lib/core.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Bounded protocol client with shared-deadline rate preflight, bounded transient stream retry, staged format recovery, locally grounded answer ranges, implementation-first recall, strict candidate projection, and fixed internal diagnostics.",
-      "shipped_sha256": "ae007702f75e6169aefe45130fa71a30937f86f077db9a07e160ef3186a5ef57"
+      "change_summary": "Bounded protocol client with fixed Connect request fields, staged format recovery, locally grounded multi-range answers, implementation-first recall, strict candidate projection, and fixed internal diagnostics.",
+      "shipped_sha256": "be17bfc8afda91bada166db50bcb289bbf064bb553f1d0e9e330b4ff01b004b0"
     },
     {
       "path": "scripts/lib/credentials.mjs",

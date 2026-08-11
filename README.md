@@ -84,7 +84,9 @@ never rendered as a conclusive `(no matches)` result.
 The JSON `projection` object reports only fixed counts for candidates reported
 by the remote answer: `remote_candidates`, `accepted_candidates`,
 `rejected_candidates`, `unprocessed_candidates`, and fixed
-`rejection_reasons`. `complete` with zero candidates is valid only for the
+`rejection_reasons`. Each exact `<range>` is one candidate unit, so a single
+locally validated file may contribute more than one returned range. `complete`
+with zero candidates is valid only for the
 exact `<no_results/>` marker or the established empty `<ANSWER></ANSWER>`
 form. If any remote candidate fails local path/range projection, the result is
 `truncated` with `coverage.reasons` containing

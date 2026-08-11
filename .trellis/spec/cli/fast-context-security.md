@@ -75,6 +75,12 @@ explicit opt-out `--no-external`, or positional arguments.
   value, child stderr, field name, or discovery failure becomes public output.
   Never scan desktop `state.vscdb`, enumerate alternate credentials paths,
   accept caller-provided credential files, or write shell configuration.
+- The direct one-shot CLI entry must await `runCli()` through credential
+  discovery and bounded `search()`. Because Node may unref a pending fetch
+  socket, the entry owns a local keepalive only until that promise settles and
+  clears it in `finally`. An exit code of zero with empty stdout is never a
+  successful search result. The same lifecycle assertion applies to the
+  release-only controlled probe, but never changes runtime search budgets.
 - One `search()` creates one `ResourceBudget` from a monotonic deadline and the
   caller's optional `AbortSignal`. Authentication, every network round,
   repository mapping, directory/glob walking, every `rg` child, up to four
@@ -456,13 +462,20 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 - After the third effective local execution result, append one fixed user
   force-answer message before building the final request. It requires `answer`,
   prohibits `restricted_exec`, specifies `<file path="/codebase/relative"><range>start-end</range></file>`, permits only exact `<no_results/>` or empty `<ANSWER></ANSWER>` for no result,
-  carries the result bound, and prohibits guessed paths/ranges.
+  permits multiple exact ranges in one file, carries the result bound, and
+  prohibits guessed paths/ranges.
 - The final tool definition contains only `answer`. A decoded final
   `restricted_exec` or other tool is `FC_PROTOCOL_INVALID`; do not retry it,
   execute it, expose its argument, or add a further round.
 - A valid answer either has an exact explicit no-result form or one or more `<file>`
-  markers. File entries are only candidate input: PathGuard/range validation
-  remains the authority for exposed paths and ranges.
+  markers. Every syntactically exact positive `<range>` is a candidate input;
+  a file may have multiple ranges and PathGuard/range validation remains the
+  authority for exposed paths and ranges.
+- A tool response may contain a bounded prefix before its one `[TOOL_CALLS]`
+  envelope. The parser discards that prefix and never includes it in a later
+  request, log, candidate, or public result. After the parsed JSON object only
+  whitespace or the `</s>` protocol terminator is valid; other suffix text uses
+  the stage's single format correction and then fails closed.
 - Instructions rank a locally read implementation ahead of a related test for
   behavior queries. This is a model-facing recall rule only; final candidates
   still require the same local path and range validation.
@@ -477,11 +490,13 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 | First malformed tool-tag JSON in executable or answer-only stage | Add that stage's one fixed correction message and retry once under the same remaining deadline |
 | Second malformed tool-tag JSON in the same stage | `FC_PROTOCOL_INVALID` without response text |
 | Rate-limit preflight is rejected | `FC_REMOTE_UNAVAILABLE`; zero map and stream requests follow |
+| Direct CLI has no credential | Wait for bounded discovery, then exit 1 with only `FC_KEY_MISSING`; never exit 0 with empty stdout |
 | Valid Connect EndStream `resource_exhausted` | `FC_REMOTE_UNAVAILABLE`, internal fixed `connect_end_stream_resource_exhausted`, and no remote error text |
 | First retryable stream capacity result, then valid `answer` | Return the locally validated answer; observer has one fixed retry event and no additional tool turn |
 | Final request returns `restricted_exec` | `FC_PROTOCOL_INVALID`, internal `answer_only_restricted_exec` only |
 | Exact `<no_results/>` or empty `<ANSWER></ANSWER>` | Complete zero-candidate result with zero projection counts |
 | `<file>` candidate lacks range or fails PathGuard/range validation | Omit it, increment `rejected_candidates`, and return `truncated` with fixed projection reason |
+| One `<file>` has two exact, locally valid ranges | Return two locally validated candidate entries and count both ranges |
 | Some candidates validate and some reject | Return only validated candidates and counts; remain `truncated` |
 | Candidate lies after `maxResults` accepted results | Do not validate it; increment `unprocessed_candidates`, add `candidate_result_limit`, and remain `truncated` |
 | Nonempty answer has no `<file>` marker and is not exact no-result | `FC_PROTOCOL_INVALID` without answer prose |
@@ -494,6 +509,8 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
   all zero; it is the only complete empty result.
 - Base: One valid and one denied candidate produce one relative validated path,
   one rejection count, and `truncated`.
+- Base: A direct source or installed-tarball CLI with an empty fixed Devin home
+  waits for discovery and emits only `FC_KEY_MISSING`.
 - Bad: The final request advertises only `answer` but still receives
   `restricted_exec`; executing it or silently opening another turn violates the
   bounded protocol.
@@ -518,12 +535,18 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
   succeeds; assert a terminal answer-only correction remains available after an
   executable-stage correction; no retry occurs for Connect framing or
   terminal-tool failures.
+- Assert a tool-envelope prefix is never replayed and a non-whitespace JSON
+  suffix receives only one correction; both checks must avoid remote text in
+  public output.
+- Spawn the direct source CLI and an offline-installed tarball CLI with an
+  empty fixed Devin home; both must wait for discovery, emit `FC_KEY_MISSING`,
+  and never return zero with empty stdout.
 - Assert at most one answer-only correction for format/range projection rejects;
   it cannot erase a prior remote candidate into a complete empty result.
-- Use a fixed local fixture to cover valid answer projection, missing range,
-  denied path, EOF range, partial valid/invalid entries, result limit, explicit
-  no-result, and arbitrary answer prose. Assert no snapshot has a key, JWT,
-  remote body, or rejected path.
+- Use a fixed local fixture to cover valid answer projection, multiple ranges
+  in one file, missing range, denied path, EOF range, partial valid/invalid
+  entries, result limit, explicit no-result, and arbitrary answer prose. Assert
+  no snapshot has a key, JWT, remote body, or rejected path.
 - Compare packed runtime entry files to source files after offline install and
   require the projection reason in the installed `core.mjs`.
 
@@ -593,4 +616,23 @@ Correct:
 ```js
 const retries = finalTurn ? answerOnlyToolFormatRetries : executableToolFormatRetries;
 if (invalidTool && retries < 1) retryWithinThatStage();
+```
+
+Wrong:
+
+```js
+runCli({ argv: process.argv.slice(2) }).then((exitCode) => {
+  process.exitCode = exitCode;
+});
+```
+
+Correct:
+
+```js
+const cliKeepalive = setInterval(() => {}, 2 ** 31 - 1);
+try {
+  process.exitCode = await runCli({ argv: process.argv.slice(2) });
+} finally {
+  clearInterval(cliKeepalive);
+}
 ```

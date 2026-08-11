@@ -20,11 +20,11 @@
 
 ## 提示词兼容策略
 
-fork 的压缩提示词保留安全禁止项，却缺少上游 v1.3.2 具备的具体调用示例、完整终态 XML 例子、无结果规则和强制终答消息。恢复最小必要信息：严格 `[TOOL_CALLS]name[ARGS]{JSON}` 示例、受限工具仅在 `/codebase`、终态 answer 示例、`<no_results/>` 和最多结果数。不会恢复上游的 `parseJsonWithRepair`、`salvageRestrictedExecArgs`、`salvageSearchEvidence`、原始响应输出、缓存或额外补偿回合；这些会扩大接收面或泄露响应。
+fork 的压缩提示词保留安全禁止项，却缺少上游 v1.3.2 具备的具体调用示例、完整终态 XML 例子、无结果规则和强制终答消息，并错误要求工具信封必须从响应首字符开始。恢复最小必要信息：逐步推理、严格 `[TOOL_CALLS]name[ARGS]{JSON}` 示例、受限工具仅在 `/codebase`、终态 answer 示例、`<no_results/>`、同一 `<file>` 的多个精确 `<range>` 和最多结果数。信封前的文本只会在单次响应内被丢弃，绝不作为候选、命令、日志或后续会话内容；JSON 后只允许空白或 `</s>` 协议终止标记。不会恢复上游的 `parseJsonWithRepair`、`salvageRestrictedExecArgs`、`salvageSearchEvidence`、原始响应输出、缓存或额外补偿回合；这些会扩大接收面或泄露响应。
 
 ## 候选投影结果
 
-`parseAnswer()` 将答案分为两个阶段：严格识别远端报告的 `<file ...>` 候选标记，再逐项经 PathGuard 的 `validateCandidateRange()` 验证。结果新增固定结构：
+`parseAnswer()` 将答案分为两个阶段：严格识别远端报告的 `<file ...>` 候选标记，再逐项经 PathGuard 的 `validateCandidateRange()` 验证。一个 `<file>` 可携带多个合法 `<range>`，每个范围是独立的候选计数和本地验证单位；相同文件的不同有效范围可同时返回，完全重复范围仍拒绝。结果新增固定结构：
 
 ```json
 "projection": {
@@ -53,7 +53,7 @@ fork 的压缩提示词保留安全禁止项，却缺少上游 v1.3.2 具备的�
 在 `test/fixtures/ledger-recall/` 放置等价四文件 TypeScript 夹具。`test/core.test.mjs` 使用临时副本、注入的 `fetchImpl` 和固定 Connect frames，不访问真实服务。测试直接解码发出的 protobuf 请求，以断言 force-answer 消息、终态工具定义和输出计数；响应正文只由合成非敏感字符串构成。
 每个成功的受控 `readfile` 结果另携带仅供协议使用的 `read_range`，其值由实际返回的编号行计算；测试断言下一轮请求和终态 force-answer 指令只允许复用这一范围。该字段不进入 CLI JSON，候选投影仍在同一文件版本上重复范围复核。
 
-真实探针在所有确定性验证后单独执行：从该夹具临时副本运行源入口和 tarball 入口，`env -u WINDSURF_API_KEY` 依赖已登录 Devin 发现。每次仅记录状态、候选数、经过本地核验的相对路径/范围、固定失败分类和终态工具名；Connect 错误仅保留固定内部类别，不保留远端正文、JWT 或 key。十次保留查询和三种等价措辞均须达成 PRD 门槛才允许发布。
+真实探针在所有确定性验证后单独执行：从该夹具临时副本运行源入口和 tarball 入口，`env -u WINDSURF_API_KEY` 依赖已登录 Devin 发现。连续独立调用之间固定等待 3 秒，避免把一次性登录态容量窗口误测成协议失败；这只属于发布候选验收，不改变运行时重试、deadline 或工具预算。每次仅记录状态、候选数、经过本地核验的相对路径/范围、固定失败分类和终态工具名；Connect 错误仅保留固定内部类别，不保留远端正文、JWT 或 key。十次保留查询和三种等价措辞均须达成 PRD 门槛才允许发布。
 
 ## 发布设计
 

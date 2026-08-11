@@ -75,3 +75,25 @@ deadline；其离线帧回归成功，尚待受控真实探针验证。
 请求却在连接建立前发生 `transport_failure`，没有预检、流、工具调用或远端正文。公开结果为
 `FC_REMOTE_UNAVAILABLE`，未记录底层异常、URL、头、凭据、JWT、请求 ID 或响应内容。该环境传输失败阻塞了
 宿主侧的后续十次复验；它不改变上述完整批次未通过的结论，也不能用作协议修复完成的证据。
+
+## 2026-08-11 再对照与入口修复
+
+对照公开 `fast-context-mcp v1.3.2` 后，确认 fork 还存在三项兼容差异：JWT 请求使用缩短的
+Connect `User-Agent`、提示词错误禁止逐步推理且只接受每文件首个范围、一次性 CLI 不等待异步
+`runCli()`。前两项会改变远端模型的协议上下文；最后一项会使 Node 在网络 promise 落定前以
+空 stdout 退出。原始 MCP 是常驻服务，不暴露后一种生命周期问题。
+
+本任务已统一三个请求阶段的固定 `User-Agent`，恢复逐步推理与同文件多精确范围的 XML 文法，
+并将信封前文字只作单次丢弃、JSON 尾随文字仍作有界格式失败。CLI 与 release 诊断入口均以
+顶层等待和清理后的本地保活计时器收敛；不回放远端 thinking，不采用 JSON 修复、prose 回收、
+TLS 降级、主机指纹或额外工具轮次。探针的独立调用间隔固定为 3 秒，仅防止验收突发消耗同一
+登录态容量窗口，不改变产品客户端的重试或 deadline。
+
+新的三措辞受控诊断曾 3/3 完成 JWT、预检和 HTTP 200 流请求，终态均为 `answer`，并返回本地
+验证的 `src/ledger/repair.ts`（1-22）与测试范围，零 `FC_PROTOCOL_INVALID`、零投影拒绝。完整
+source/tarball 批次随后确认入口空 stdout 回归已消除：前五个 source 调用均产生 JSON，其中四个
+命中目标，且该批次 `FC_PROTOCOL_INVALID` 为零；之后服务固定收敛为 `FC_REMOTE_UNAVAILABLE`。
+另一轮 3 秒间隔的完整批次在首项后同样进入可用性失败。两轮均保持零伪 `complete/0`，无效静态
+key 继续为 `FC_AUTH_REJECTED` 且 stdout 为空。由于十次成功、三种措辞和 tarball 真实入口门槛尚未
+全部满足，候选仍不得发布。所有记录仅含固定状态、计数和本地验证相对范围；没有 key、JWT、请求
+标识、绝对路径或远端正文。
