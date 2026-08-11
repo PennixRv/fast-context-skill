@@ -26,6 +26,13 @@ stdout: {
     reason: "local_range_validated"
   }],
   truncated: boolean,
+  projection: {
+    remote_candidates: integer,
+    accepted_candidates: integer,
+    rejected_candidates: integer,
+    unprocessed_candidates: integer,
+    rejection_reasons: string[]
+  },
   coverage: {
     visited: { entries, directories, files, matches, outputBytes },
     continuation: object | null,
@@ -100,12 +107,12 @@ explicit opt-out `--no-external`, or positional arguments.
   and the JSON object. The JSON object itself must still be complete and
   parseable; never repair JSON, infer a tool name, or treat remote prose as a
   local command/result.
-- A valid Connect response whose tool tag/JSON is locally invalid may repeat
-  the exact streaming request once, using the same `ResourceBudget` remaining
-  time. Connect framing/compression/EndStream failures, remote EndStream
-  errors, output ceilings, transport failures, and a second invalid tool tag
-  fail immediately with their existing fixed code. The retry never forwards or
-  records remote prose.
+- A valid Connect response whose tool tag/JSON is locally invalid receives one
+  fixed corrective user message and may make one replacement request using the
+  same `ResourceBudget` remaining time. Connect framing/compression/EndStream
+  failures, remote EndStream errors, output ceilings, transport failures, and a
+  second invalid tool tag fail immediately with their existing fixed code. The
+  correction never forwards or records remote prose and cannot add a tool turn.
 - Successful candidates use PathGuard-approved relative paths and the fixed
   `local_range_validated` reason. Candidate ranges are positive, ordered,
   1-based, span at most 200 lines, exist in a non-empty file, and are checked
@@ -113,6 +120,15 @@ explicit opt-out `--no-external`, or positional arguments.
   the bounded read. EOF overflow, oversized spans, and changed files are
   dropped without clamp. Remote prose/reasons are never returned; callers still
   perform final semantic validation.
+- A complete empty result is valid only when the remote `answer` value is exact
+  `<no_results/>` or the established empty `<ANSWER></ANSWER>` form. Each remote
+  `<file>` marker contributes only a fixed count to `projection`; accepted
+  paths/ranges must pass local validation.
+  A missing range, malformed file element, denied/unavailable/duplicate path,
+  invalid range, or changed candidate increments `rejected_candidates`, sets
+  `truncated: true`, and adds `remote_candidate_projection_rejected`. Candidates
+  left after `maxResults` increment `unprocessed_candidates` and add
+  `candidate_result_limit`; they are not treated as verified or rejected.
 
 ### 4. Validation And Error Matrix
 
@@ -133,6 +149,9 @@ explicit opt-out `--no-external`, or positional arguments.
 | Restricted local command fails without abort/deadline | Typed tool `failure` with a fixed `FC_*` code; final coverage remains incomplete |
 | Candidate start/end exceeds EOF, file is empty, or span exceeds 200 | Drop candidate without clamp or remote prose |
 | Candidate file version changes during validation | Drop candidate; public status is `truncated` with `candidate_changed` |
+| Remote answer is exact `<no_results/>` or empty `<ANSWER></ANSWER>` | `complete`/zero candidates and all projection counts zero |
+| Remote answer has a `<file>` marker but all entries fail local projection | `truncated`/zero candidates with `remote_candidate_projection_rejected` and a nonzero rejection count |
+| Remote answer has no candidate marker and is not an exact explicit no-result form | `FC_PROTOCOL_INVALID` without answer text |
 
 ### 5. Good, Base, And Bad Cases
 
@@ -186,7 +205,9 @@ explicit opt-out `--no-external`, or positional arguments.
   missing/duplicate/early/non-final/error EndStream boundary.
 - Candidate tests assert start/end EOF overflow, zero/invalid order, empty file,
   spans over 200, trailing/no-trailing newline last lines, deny/root/symlink
-  rejection, and deterministic file change during final version comparison.
+  rejection, deterministic file change during final version comparison, all
+  projection-rejected answers, partial valid answers, explicit no-result, and
+  the result-limit unprocessed count.
 - Package/release tests compare exact tarball contents, perform an offline
   lifecycle-disabled install, validate provenance, and assert workflow
   permissions and annotated-tag rules.
@@ -350,14 +371,115 @@ Correct:
 - run: node scripts/release/verify-tag.mjs "${{ inputs.tag }}"
 ```
 
-## Remote Tool Completion Bound
+## Scenario: Bounded Remote Completion And Candidate Projection
 
-The bounded search protocol has three local-tool turns and one terminal
-answer-only request. `restricted_exec` remains available only in the first
-three turns, with the existing shared resource budget and PathGuard checks.
-The terminal request advertises only `answer`; a remote `restricted_exec` or
-other tool response in that turn is `FC_PROTOCOL_INVALID`. This preserves the
-three-round local execution cap while giving the remote protocol a deterministic
-opportunity to return locally range-validated candidates. Tests must assert the
-terminal tool definition excludes `restricted_exec`, the final request shares a
-decreasing deadline, and an invalid terminal tool remains failure-closed.
+### 1. Scope / Trigger
+
+Use this contract whenever changing the remote conversation loop, prompt/tool
+definitions, answer parser, CLI JSON result shape, or tests for candidate
+recall. It prevents a final answer-only request from becoming another local-tool
+round and prevents rejected remote candidates from looking like a semantic
+no-result.
+
+### 2. Signatures
+
+```text
+search({ query, guard, apiKey, maxResults, timeoutMs, fetchImpl, signal })
+  -> { status, candidates, truncated, projection, coverage }
+
+projection = {
+  remote_candidates: integer,
+  accepted_candidates: integer,
+  rejected_candidates: integer,
+  unprocessed_candidates: integer,
+  rejection_reasons: string[] // fixed local categories only
+}
+```
+
+The internal `FastContextError.protocolReason` may contain only a fixed local
+identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
+
+### 3. Contracts
+
+- The protocol permits at most three `restricted_exec` turns and one final
+  answer-only request under one `ResourceBudget` deadline.
+- After the third effective local execution result, append one fixed user
+  force-answer message before building the final request. It requires `answer`,
+  prohibits `restricted_exec`, specifies `<file path="/codebase/relative"><range>start-end</range></file>`, permits only exact `<no_results/>` or empty `<ANSWER></ANSWER>` for no result,
+  carries the result bound, and prohibits guessed paths/ranges.
+- The final tool definition contains only `answer`. A decoded final
+  `restricted_exec` or other tool is `FC_PROTOCOL_INVALID`; do not retry it,
+  execute it, expose its argument, or add a further round.
+- A valid answer either has an exact explicit no-result form or one or more `<file>`
+  markers. File entries are only candidate input: PathGuard/range validation
+  remains the authority for exposed paths and ranges.
+- Projection counts and `coverage.reasons` use fixed client values only. They
+  must never contain remote XML/prose, rejected paths, ranges, response bytes,
+  JWTs, keys, request identifiers, or absolute project paths.
+
+### 4. Validation And Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| First valid Connect response has malformed tool-tag JSON | Add one fixed correction message and retry once under the same remaining deadline |
+| Second malformed tool-tag JSON | `FC_PROTOCOL_INVALID` without response text |
+| Final request returns `restricted_exec` | `FC_PROTOCOL_INVALID`, internal `answer_only_restricted_exec` only |
+| Exact `<no_results/>` or empty `<ANSWER></ANSWER>` | Complete zero-candidate result with zero projection counts |
+| `<file>` candidate lacks range or fails PathGuard/range validation | Omit it, increment `rejected_candidates`, and return `truncated` with fixed projection reason |
+| Some candidates validate and some reject | Return only validated candidates and counts; remain `truncated` |
+| Candidate lies after `maxResults` accepted results | Do not validate it; increment `unprocessed_candidates`, add `candidate_result_limit`, and remain `truncated` |
+| Nonempty answer has no `<file>` marker and is not exact no-result | `FC_PROTOCOL_INVALID` without answer prose |
+
+### 5. Good, Base, And Bad Cases
+
+- Good: Three guarded tool rounds are followed by a force-answer message and an
+  `answer` response containing a locally valid `/codebase/src/a.ts:1-8` range.
+- Base: An exact explicit no-result form has complete coverage and projection counts
+  all zero; it is the only complete empty result.
+- Base: One valid and one denied candidate produce one relative validated path,
+  one rejection count, and `truncated`.
+- Bad: The final request advertises only `answer` but still receives
+  `restricted_exec`; executing it or silently opening another turn violates the
+  bounded protocol.
+- Bad: A path-only or prose-only remote answer becomes `complete`/zero
+  candidates; this destroys the distinction between no match and failed local
+  projection.
+
+### 6. Tests Required
+
+- Decode injected final request frames and assert both the force-answer user
+  message and absence of `restricted_exec` from final tool definitions.
+- Assert three local rounds plus the terminal request consume decreasing values
+  from one deadline; assert final `restricted_exec` is failure-closed with the
+  fixed internal reason.
+- Assert one malformed tool JSON receives one correction message and then
+  succeeds; no retry occurs for Connect framing or terminal-tool failures.
+- Assert at most one answer-only correction for format/range projection rejects;
+  it cannot erase a prior remote candidate into a complete empty result.
+- Use a fixed local fixture to cover valid answer projection, missing range,
+  denied path, EOF range, partial valid/invalid entries, result limit, explicit
+  no-result, and arbitrary answer prose. Assert no snapshot has a key, JWT,
+  remote body, or rejected path.
+- Compare packed runtime entry files to source files after offline install and
+  require the projection reason in the installed `core.mjs`.
+
+### 7. Wrong Vs Correct
+
+Wrong:
+
+```js
+if (candidates.length === 0) return { status: "complete", candidates: [] };
+if (finalTurn) await executor.execToolCall(remoteArgs);
+```
+
+Correct:
+
+```js
+if (remoteCandidateCount > 0 && rejectedCandidates > 0) {
+  reasons.add("remote_candidate_projection_rejected");
+  status = "truncated";
+}
+if (finalTurn && toolCall.name === "restricted_exec") {
+  throw protocolError("answer_only_restricted_exec");
+}
+```

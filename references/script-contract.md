@@ -34,18 +34,31 @@ data, or caught exception text.
 Successful stdout is one JSON object:
 
 ```json
-{"status":"truncated","search_terms":["import"],"candidates":[{"path":"src/import.mjs","start_line":12,"end_line":20,"reason":"local_range_validated"}],"truncated":true,"coverage":{"visited":{"entries":4096,"directories":128,"files":2048,"matches":37,"outputBytes":18320},"continuation":{"pending_directories":3,"next_path":"/codebase/src/remaining"},"reasons":["file_limit"]}}
+{"status":"truncated","search_terms":["import"],"candidates":[{"path":"src/import.mjs","start_line":12,"end_line":20,"reason":"local_range_validated"}],"truncated":true,"projection":{"remote_candidates":2,"accepted_candidates":1,"rejected_candidates":1,"unprocessed_candidates":0,"rejection_reasons":["remote_candidate_range_rejected"]},"coverage":{"visited":{"entries":4096,"directories":128,"files":2048,"matches":37,"outputBytes":18320},"continuation":{"pending_directories":3,"next_path":"/codebase/src/remaining"},"reasons":["file_limit","remote_candidate_projection_rejected"]}}
 ```
 
 `status: "complete"` means every PathGuard-approved path in the bounded local
 enumeration was consumed. It does not include denied paths and is not a claim
 of unrestricted whole-repository coverage or semantic correctness.
 `status: "truncated"` means one or more fixed resource limits, local tool
-failures, or the candidate result limit made the result incomplete. The legacy
-`truncated` boolean remains aligned with `status`. `coverage.visited` is the
-shared invocation-wide count; `coverage.reasons` contains only local fixed
-identifiers; `coverage.continuation` identifies the last bounded frontier when
-one is available.
+failures, the candidate result limit, or remote candidates rejected by local
+projection made the result incomplete. The legacy `truncated` boolean remains
+aligned with `status`. `coverage.visited` is the shared invocation-wide count;
+`coverage.reasons` contains only fixed client identifiers; `coverage.continuation`
+identifies the last bounded frontier when one is available.
+
+`projection` contains counts only. `remote_candidates` is the number of remote
+`<file>` markers, `accepted_candidates` is the number that passed local
+PathGuard/range validation, `rejected_candidates` is the number locally
+rejected for format, path, range, duplicate, or version reasons, and
+`unprocessed_candidates` is the number left beyond `--max-results`. No field
+contains rejected paths, ranges, XML, or remote prose. `rejection_reasons` is
+the deduplicated fixed local category list for rejected entries. `complete`
+with zero candidates is permitted only for exact `<no_results/>` or the
+established empty `<ANSWER></ANSWER>` form.
+Any candidate rejection sets `status: "truncated"` and the fixed
+`remote_candidate_projection_rejected` reason; arbitrary answer prose with no
+candidate marker is `FC_PROTOCOL_INVALID`, not semantic no-result.
 
 Every repository-map and restricted local tool result sent to the remote model
 uses the same `complete`, `truncated`, or `failure` status words. Tool failures
@@ -75,7 +88,14 @@ Public failures use a fixed `FC_*` code and local diagnostic text on stderr.
 
 The remote protocol has at most three `restricted_exec` turns. Each one still
 uses the same PathGuard, resource budget, command count, and output limits. A
-fourth and final request advertises only the `answer` tool and the client
-rejects any non-answer response on that turn as `FC_PROTOCOL_INVALID`. The
-additional terminal request consumes the same monotonic deadline; it does not
-create a new local-tool round, timeout, or fallback candidate source.
+fourth and final request first receives a fixed force-answer user message and
+advertises only the `answer` tool. The message forbids `restricted_exec`,
+requires strict `<file>`/`<range>` entries or an exact explicit no-result form,
+limits the result count, and forbids guessed paths/ranges. A malformed tool-tag
+JSON receives one fixed corrective user message and one retry under the same
+remaining deadline; it neither forwards remote text nor creates a new tool
+round. A projection rejection may similarly receive one answer-only correction
+when the rejection is format/range related. The client rejects a terminal
+non-answer response as `FC_PROTOCOL_INVALID`; its internal fixed protocol
+reason is never emitted by the CLI. The terminal and correction requests consume
+the same monotonic deadline and never create a fallback candidate source.

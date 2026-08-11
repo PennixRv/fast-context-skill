@@ -56,6 +56,19 @@ and does not prove semantic correctness or unrestricted whole-repository
 coverage. `truncated` means the returned candidates may be incomplete; it is
 never rendered as a conclusive `(no matches)` result.
 
+The JSON `projection` object reports only fixed counts for candidates reported
+by the remote answer: `remote_candidates`, `accepted_candidates`,
+`rejected_candidates`, `unprocessed_candidates`, and fixed
+`rejection_reasons`. `complete` with zero candidates is valid only for the
+exact `<no_results/>` marker or the established empty `<ANSWER></ANSWER>`
+form. If any remote candidate fails local path/range projection, the result is
+`truncated` with `coverage.reasons` containing
+`remote_candidate_projection_rejected`; no remote XML, prose, rejected path, or
+rejected range is emitted. A bounded answer-only correction cannot convert a
+previously reported candidate into a complete empty result. A result-limit
+frontier is likewise `truncated` and uses `candidate_result_limit` plus
+`unprocessed_candidates`.
+
 Candidate projection has three distinct trust boundaries. PathGuard first
 revalidates canonical containment, deny rules, and symlink escapes. It then
 opens the approved file and accepts only a 1-based range of at most 200 lines

@@ -166,3 +166,43 @@ test("CLI preserves stable remote categories without exposing a synthetic creden
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("CLI preserves candidate projection incompleteness without remote details", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fast-context-cli-"));
+  const stdout = stream();
+  const stderr = stream();
+  const result = {
+    status: "truncated",
+    search_terms: ["ledger"],
+    candidates: [],
+    truncated: true,
+    projection: {
+      remote_candidates: 1,
+      accepted_candidates: 0,
+      rejected_candidates: 1,
+      unprocessed_candidates: 0,
+      rejection_reasons: ["remote_candidate_missing_range"],
+    },
+    coverage: {
+      visited: { entries: 1, directories: 1, files: 1, matches: 0, outputBytes: 1 },
+      continuation: null,
+      reasons: ["remote_candidate_projection_rejected"],
+    },
+  };
+  try {
+    const status = await runCli({
+      argv: ["--project", root, "--query", "q"],
+      environment: { WINDSURF_API_KEY: "synthetic-key-not-a-real-credential" },
+      stdout,
+      stderr,
+      resolveApiKey: async () => ({ apiKey: "synthetic-key-not-a-real-credential", source: "environment" }),
+      loadCore: async () => ({ async search() { return result; } }),
+    });
+    assert.equal(status, 0);
+    assert.equal(stderr.value(), "");
+    assert.deepEqual(JSON.parse(stdout.value()), result);
+    assert.doesNotMatch(stdout.value(), /synthetic-key|JWT|REMOTE_RESPONSE/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -18,9 +18,41 @@ export const CONNECT_LIMITS = Object.freeze({
 });
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const CONNECT_ERROR_CODES = new Set([
+  "canceled",
+  "unknown",
+  "invalid_argument",
+  "deadline_exceeded",
+  "not_found",
+  "already_exists",
+  "permission_denied",
+  "resource_exhausted",
+  "failed_precondition",
+  "aborted",
+  "out_of_range",
+  "unimplemented",
+  "internal",
+  "unavailable",
+  "data_loss",
+  "unauthenticated",
+]);
 
-function protocolError() {
-  return new FastContextError("FC_PROTOCOL_INVALID");
+function protocolError(protocolReason) {
+  const error = new FastContextError("FC_PROTOCOL_INVALID");
+  if (typeof protocolReason === "string") {
+    Object.defineProperty(error, "protocolReason", {
+      value: protocolReason,
+      enumerable: false,
+    });
+  }
+  return error;
+}
+
+function remoteEndStreamErrorReason(error) {
+  const code = typeof error?.code === "string" ? error.code.trim().toLowerCase() : "";
+  return CONNECT_ERROR_CODES.has(code)
+    ? `connect_end_stream_${code}`
+    : "connect_end_stream_remote_error";
 }
 
 function outputLimitError() {
@@ -28,7 +60,7 @@ function outputLimitError() {
 }
 
 function positiveLimit(value) {
-  if (!Number.isSafeInteger(value) || value < 1) throw protocolError();
+  if (!Number.isSafeInteger(value) || value < 1) throw protocolError("connect_limit_invalid");
   return value;
 }
 
@@ -242,12 +274,12 @@ export function connectFrameEncode(protoBytes, compress = true) {
  * @returns {Buffer[]}
  */
 export function connectFrameDecode(data, options = {}) {
-  if (!(data instanceof Uint8Array)) throw protocolError();
+  if (!(data instanceof Uint8Array)) throw protocolError("connect_data_invalid");
   const buffer = Buffer.isBuffer(data)
     ? data
     : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   const encoding = String(options.encoding || "identity").trim().toLowerCase();
-  if (encoding !== "identity" && encoding !== "gzip") throw protocolError();
+  if (encoding !== "identity" && encoding !== "gzip") throw protocolError("connect_encoding_invalid");
 
   const maxFrameCompressedBytes = positiveLimit(
     options.maxFrameCompressedBytes ?? CONNECT_LIMITS.MAX_FRAME_COMPRESSED_BYTES,
@@ -265,26 +297,28 @@ export function connectFrameDecode(data, options = {}) {
   let sawEndStream = false;
 
   while (offset < buffer.length) {
-    if (buffer.length - offset < 5) throw protocolError();
+    if (buffer.length - offset < 5) throw protocolError("connect_frame_header_incomplete");
     const flags = buffer[offset];
-    if ((flags & ~0x03) !== 0) throw protocolError();
+    if ((flags & ~0x03) !== 0) throw protocolError("connect_frame_flags_invalid");
 
     const length = buffer.readUInt32BE(offset + 1);
     if (length > maxFrameCompressedBytes) throw outputLimitError();
     const payloadStart = offset + 5;
     const payloadEnd = payloadStart + length;
-    if (!Number.isSafeInteger(payloadEnd) || payloadEnd > buffer.length) throw protocolError();
+    if (!Number.isSafeInteger(payloadEnd) || payloadEnd > buffer.length) {
+      throw protocolError("connect_frame_length_invalid");
+    }
 
     const compressed = (flags & 0x01) !== 0;
     const endStream = (flags & 0x02) !== 0;
     let payload = buffer.subarray(payloadStart, payloadEnd);
     if (compressed) {
-      if (encoding !== "gzip") throw protocolError();
+      if (encoding !== "gzip") throw protocolError("connect_compression_not_negotiated");
       try {
         payload = gunzipSync(payload, { maxOutputLength: maxFrameDecompressedBytes });
       } catch (error) {
         if (error?.code === "ERR_BUFFER_TOO_LARGE") throw outputLimitError();
-        throw protocolError();
+        throw protocolError("connect_gzip_invalid");
       }
     } else if (payload.length > maxFrameDecompressedBytes) {
       throw outputLimitError();
@@ -297,20 +331,24 @@ export function connectFrameDecode(data, options = {}) {
     offset = payloadEnd;
 
     if (endStream) {
-      if (sawEndStream || offset !== buffer.length) throw protocolError();
+      if (sawEndStream || offset !== buffer.length) throw protocolError("connect_end_stream_not_final");
       let end;
       try {
         end = JSON.parse(utf8Decoder.decode(payload));
       } catch {
-        throw protocolError();
+        throw protocolError("connect_end_stream_payload_invalid");
       }
-      if (!end || typeof end !== "object" || Array.isArray(end)) throw protocolError();
-      if (Object.hasOwn(end, "error")) throw protocolError();
+      if (!end || typeof end !== "object" || Array.isArray(end)) {
+        throw protocolError("connect_end_stream_payload_invalid");
+      }
+      if (Object.hasOwn(end, "error")) {
+        throw protocolError(remoteEndStreamErrorReason(end.error));
+      }
       if (
         Object.hasOwn(end, "metadata")
         && (!end.metadata || typeof end.metadata !== "object" || Array.isArray(end.metadata))
       ) {
-        throw protocolError();
+        throw protocolError("connect_end_stream_metadata_invalid");
       }
       sawEndStream = true;
       continue;
@@ -319,6 +357,6 @@ export function connectFrameDecode(data, options = {}) {
     frames.push(payload);
   }
 
-  if (!sawEndStream) throw protocolError();
+  if (!sawEndStream) throw protocolError("connect_end_stream_missing");
   return frames;
 }

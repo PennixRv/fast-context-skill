@@ -191,6 +191,7 @@ export class ToolExecutor {
    *   budget?: ResourceBudget,
    *   rgBinary?: string,
    *   runProcess?: typeof runBoundedProcess,
+   *   onCommandResult?: (event: { command_index: string, command_type: string, status: string, reason: string | null, code: string | null }) => void,
    * }} [options]
    */
   constructor(guard, options = {}) {
@@ -198,6 +199,7 @@ export class ToolExecutor {
     this.budget = options.budget || new ResourceBudget();
     this.rgBinary = options.rgBinary || defaultRgBinary();
     this.runProcess = options.runProcess || runBoundedProcess;
+    this.onCommandResult = options.onCommandResult;
     this.collectedRgPatterns = [];
     this.hadTruncation = false;
     this.hadFailure = false;
@@ -349,6 +351,19 @@ export class ToolExecutor {
         result = commandResult("failure", "", this.budget, null, "local_tool_failure", code);
       }
       rendered.push(`<${key}_result>\n${JSON.stringify(result)}\n</${key}_result>`);
+      if (typeof this.onCommandResult === "function") {
+        try {
+          this.onCommandResult(Object.freeze({
+            command_index: key,
+            command_type: typeof args[key]?.type === "string" ? args[key].type : "invalid",
+            status: result.status,
+            reason: result.reason || null,
+            code: result.code || null,
+          }));
+        } catch {
+          // Optional observation must not alter bounded local execution.
+        }
+      }
     }
     return rendered.join("");
   }

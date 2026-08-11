@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -37,6 +37,14 @@ test("staged tarball installs offline and the runtime CLI does not need maintain
     assert.equal(disabled.stderr, "FC_EXTERNAL_DISABLED: external search is disabled by the caller\n");
     assert.equal(existsSync(join(packageRoot, "scripts", "lib", "credentials.mjs")), true);
     assert.equal(existsSync(join(packageRoot, "scripts", "lib", "devin-credential-helper.mjs")), true);
+    assert.equal(
+      readFileSync(join(packageRoot, "scripts", "fast-context-search.mjs"), "utf8"),
+      readFileSync("scripts/fast-context-search.mjs", "utf8"),
+    );
+    const installedCore = readFileSync(join(packageRoot, "scripts", "lib", "core.mjs"), "utf8");
+    assert.equal(installedCore, readFileSync("scripts/lib/core.mjs", "utf8"));
+    assert.match(installedCore, /remote_candidate_projection_rejected/);
+    assert.match(installedCore, /rejection_reasons/);
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }

@@ -91,6 +91,35 @@ test("Connect decoder requires one final successful EndStreamResponse", () => {
   }
 });
 
+test("Connect protocol diagnostics retain fixed reasons without serializing payload data", () => {
+  let incomplete;
+  let remoteError;
+  try {
+    connectFrameDecode(Buffer.from([0, 0, 0, 0]));
+  } catch (error) {
+    incomplete = error;
+  }
+  try {
+    connectFrameDecode(Buffer.concat([
+      connectFrameEncode(Buffer.from("message"), false),
+      endStream({ error: { code: "unavailable", message: "REMOTE_BODY_SENTINEL" } }),
+    ]));
+  } catch (error) {
+    remoteError = error;
+  }
+  assert.equal(incomplete?.code, "FC_PROTOCOL_INVALID");
+  assert.equal(incomplete?.protocolReason, "connect_frame_header_incomplete");
+  assert.deepEqual(JSON.parse(JSON.stringify(incomplete)), {
+    name: "FastContextError",
+    code: "FC_PROTOCOL_INVALID",
+  });
+  assert.equal(remoteError?.protocolReason, "connect_end_stream_unavailable");
+  assert.deepEqual(JSON.parse(JSON.stringify(remoteError)), {
+    name: "FastContextError",
+    code: "FC_PROTOCOL_INVALID",
+  });
+});
+
 test("Connect decoder separately bounds compressed, decompressed, and cumulative frame bytes", () => {
   assert.throws(
     () => connectFrameDecode(Buffer.concat([

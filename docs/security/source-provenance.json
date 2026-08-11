@@ -43,8 +43,8 @@
       "path": "README.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Local-first operating and security documentation.",
-      "shipped_sha256": "426930073071c5b18f38c65ba1bf45cf12fc65ca7cffc353639056ee2f21d7be"
+      "change_summary": "Local-first operating, bounded answer correction, and candidate-projection documentation.",
+      "shipped_sha256": "93d669bdd401b0277bbcaadea77a6d5c3c7ef723e7adb2d634d1c15d8f2ec269"
     },
     {
       "path": "SKILL.md",
@@ -71,15 +71,15 @@
       "path": "references/script-contract.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI, controlled credential-source, and redacted error contract.",
-      "shipped_sha256": "52e609b8c3bf3de9d824f78b773c7cdd7e6193491bdafa73687a4e8f8bf6d157"
+      "change_summary": "Finite CLI, bounded answer correction, candidate projection, credential-source, and redacted error contract.",
+      "shipped_sha256": "277dfb9712fe11edca546ea6ca3901c02a88f9c896021f8eb42ad2cc61067499"
     },
     {
       "path": "references/source-provenance.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "c7153383bae6e4795a1fb780f96dd10fe6bddc0454d4a6c174376638d9d19ada"
+      "shipped_sha256": "47be5ab34f3f8696b9cb26957a78cd5a99c5ed3c1bc4b822be0ed88ff06f7693"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -103,8 +103,8 @@
       "path": "scripts/lib/core.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Bounded protocol client with local candidate revalidation and closed remote status categories.",
-      "shipped_sha256": "c7ba24325cf22e44567bb0361ac2252b459fef2edbcbd2ec5fa5836c1ff00480"
+      "change_summary": "Bounded protocol client with force-answer completion, one-shot corrections, strict candidate projection, and fixed internal diagnostics.",
+      "shipped_sha256": "ed9262722e70f51b20f1f9298a005ce5b878ad1c43109189014b1854fcda072a"
     },
     {
       "path": "scripts/lib/credentials.mjs",
@@ -124,8 +124,8 @@
       "path": "scripts/lib/executor.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Guarded local primitives and fixed ripgrep invocation.",
-      "shipped_sha256": "59c81efa6ee3a0ee0f3246fdb8bf9f37a400124969116ffc773d2da746983510"
+      "change_summary": "Guarded local primitives, fixed ripgrep invocation, and redacted local-tool protocol observation.",
+      "shipped_sha256": "dd35c61bb27317bbd87ed550afe6868caa695a5d74e0a31a3542b8ce3ab92e16"
     },
     {
       "path": "scripts/lib/path-guard.mjs",
@@ -138,8 +138,8 @@
       "path": "scripts/lib/protobuf.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Fork-maintained minimal Connect and Protobuf codec.",
-      "shipped_sha256": "9cdc98c9b074154350b17569c67eade5330bbf6d9dc4e7f9a23c3b3eb4255080"
+      "change_summary": "Fork-maintained strict Connect and Protobuf codec with fixed, non-serialized protocol diagnostics.",
+      "shipped_sha256": "c3cea8a5bb1e6965eb0bde386ec60a3a192587e5274a5807769aebb44fe43a8b"
     },
     {
       "path": "scripts/lib/public-error.mjs",
