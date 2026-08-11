@@ -261,6 +261,11 @@ explicit opt-out `--no-external`, or positional arguments.
 - Executor tests assert fixed `rg --json` argv, absolute binary, empty config
   path, approved batched files, typed failures, stdout limits, and that
   aborted/forced children have closed and no PID remains.
+- Core tests that require a successful `rg` result pass an absolute synthetic
+  `executorOptions.rgBinary` and a deterministic `executorOptions.runProcess`
+  that returns fixed ripgrep JSON. They never assume `/usr/bin/rg` or another
+  host binary exists. A separate test supplies an unsupported relative binary
+  and asserts `truncated` with only `local_tool_failure`.
 - Core tests inject synthetic protocol responses and assert key-before-fetch,
   gzip rate-limit preflight order/model/body and its failure before mapping,
   `401/403` authentication, transport, deadline timeout, `5xx`, malformed JWT
@@ -311,6 +316,24 @@ await runBoundedProcess(rgBinary, fixedArgs, {
   maxOutputBytes: remainingOutputBytes,
 });
 const bytes = await readBoundedBody(response, MAX_RESPONSE_BYTES, budget.signal);
+```
+
+Wrong:
+
+```js
+await search(injectedProtocolCase); // the case asks for rg and inherits host tools
+```
+
+Correct:
+
+```js
+await search({
+  ...injectedProtocolCase,
+  executorOptions: {
+    rgBinary: absoluteSyntheticPath,
+    runProcess: async () => ({ status: 0, stdout: fixedRgJson }),
+  },
+});
 ```
 
 Never add a per-step full timeout, synchronous/unbounded walk, raw gzip fallback,
@@ -390,6 +413,7 @@ build-package --output <directory>
 | Manual publish verifier receives a branch/default ref instead of `inputs.tag` | Reject before publish |
 | Manifest repository owner/repository differs from the canonical public GitHub identity | Reject before tagging; use a newly authorized patch after correcting metadata |
 | Existing target version, auth failure, or non-404 registry response before publish | Reject before publish |
+| A pushed immutable tag fails validation before publish | Keep the tag as failed evidence; fix on a new patch version and never delete, move, or reuse the tag |
 | Published version metadata temporarily returns 404 | Do not republish; confirm dist-tags, public tarball HTTP 200, and immutable-version conflict evidence |
 
 ### 5. Good, Base, And Bad Cases
@@ -401,6 +425,8 @@ build-package --output <directory>
   and the public tarball endpoint establish visibility without republishing.
 - Bad: A second publish is attempted because a post-publish `npm view` call
   still reports a cached 404.
+- Bad: A failed pushed tag is moved to a corrective commit or its workflow is
+  repeatedly rerun to hide a host-dependent test.
 
 ### 6. Tests Required
 
@@ -462,7 +488,10 @@ no-result.
 ### 2. Signatures
 
 ```text
-search({ query, guard, apiKey, maxResults, timeoutMs, fetchImpl, signal, waitImpl? })
+search({
+  query, guard, apiKey, maxResults, timeoutMs, fetchImpl, signal, waitImpl?,
+  executorOptions?: { rgBinary?: string, runProcess?: runBoundedProcess }
+})
   -> { status, candidates, truncated, projection, coverage }
 
 projection = {
@@ -496,6 +525,12 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
   JWT session at most twice. Each refresh repeats the fixed preflight and same
   current request under the original budget. `waitImpl` exists only for
   deterministic injected tests; production uses the abort-aware bounded wait.
+- `executorOptions` is a trusted, JavaScript-only deterministic-test seam. The
+  CLI, environment, remote tool arguments, and remote answer cannot set it;
+  production omits it and retains fixed absolute `rg` candidates with no shell.
+  `search()` forwards only `rgBinary` and `runProcess`, then overwrites the
+  executor budget and command-observation callback with coordinator-owned
+  values so injection cannot mint a deadline or bypass protocol accounting.
 - After the third effective local execution result, append one fixed user
   force-answer message before building the final request. It requires `answer`,
   prohibits `restricted_exec`, specifies `<file path="/codebase/relative"><range>start-end</range></file>`, permits only exact `<no_results/>` or empty `<ANSWER></ANSWER>` for no result,

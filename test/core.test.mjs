@@ -1803,40 +1803,68 @@ test("a test-only answer recovers one locally imported implementation", async ()
   }
 });
 
+async function implementationAnswerWithRg(root, executorOptions) {
+  let streamCalls = 0;
+  const result = await search({
+    query: "resume interrupted financial records",
+    guard: new PathGuard(root),
+    apiKey: syntheticKey,
+    executorOptions,
+    fetchImpl: async (url) => {
+      if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+        return response(protoString("eyJ.synthetic.jwt"));
+      }
+      streamCalls += 1;
+      const frame = streamCalls === 1
+        ? restrictedExecFrame({
+          command1: {
+            type: "readfile",
+            file: "/codebase/src/ledger/repair.ts",
+            start_line: 1,
+            end_line: 80,
+          },
+          command2: {
+            type: "rg",
+            pattern: "export",
+            path: "/codebase/src",
+          },
+        })
+        : answerFrame(
+          '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>',
+        );
+      return response(connectResponse([frame]), {
+        headers: { "Connect-Content-Encoding": "gzip" },
+      });
+    },
+  });
+  return { result, streamCalls };
+}
+
 test("a valid implementation answer does not expose unrelated rg exploration hits", async () => {
   const { root, temporaryRoot } = ledgerFixture();
-  let streamCalls = 0;
   try {
-    const result = await search({
-      query: "resume interrupted financial records",
-      guard: new PathGuard(root),
-      apiKey: syntheticKey,
-      fetchImpl: async (url) => {
-        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
-          return response(protoString("eyJ.synthetic.jwt"));
-        }
-        streamCalls += 1;
-        const frame = streamCalls === 1
-          ? restrictedExecFrame({
-            command1: {
-              type: "readfile",
-              file: "/codebase/src/ledger/repair.ts",
-              start_line: 1,
-              end_line: 80,
-            },
-            command2: {
-              type: "rg",
-              pattern: "export",
-              path: "/codebase/src",
-            },
-          })
-          : answerFrame(
-            '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>',
-          );
-        return response(connectResponse([frame]), {
-          headers: { "Connect-Content-Encoding": "gzip" },
-        });
-      },
+    const runProcess = async (_binary, args) => {
+      const separator = args.indexOf("--");
+      const unrelatedPath = args
+        .slice(separator + 1)
+        .find((value) => value.replaceAll("\\", "/").endsWith("/src/catalog/pricing.ts"));
+      assert.notEqual(separator, -1);
+      assert.ok(unrelatedPath);
+      return {
+        status: 0,
+        stdout: `${JSON.stringify({
+          type: "match",
+          data: {
+            path: { text: unrelatedPath },
+            lines: { text: "export const pricing = true;\n" },
+            line_number: 1,
+          },
+        })}\n`,
+      };
+    };
+    const { result, streamCalls } = await implementationAnswerWithRg(root, {
+      rgBinary: join(tmpdir(), "deterministic-test-rg"),
+      runProcess,
     });
     assert.equal(streamCalls, 2);
     assert.equal(result.status, "complete");
@@ -1845,6 +1873,24 @@ test("a valid implementation answer does not expose unrelated rg exploration hit
     ]);
     assert.equal(result.projection.recovered_candidates, 0);
     assert.deepEqual(result.coverage.reasons, []);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("an unavailable rg command remains a visible local tool failure", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  try {
+    const { result, streamCalls } = await implementationAnswerWithRg(root, {
+      rgBinary: "rg",
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "truncated");
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), [
+      "src/ledger/repair.ts",
+    ]);
+    assert.equal(result.projection.recovered_candidates, 0);
+    assert.deepEqual(result.coverage.reasons, ["local_tool_failure"]);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }

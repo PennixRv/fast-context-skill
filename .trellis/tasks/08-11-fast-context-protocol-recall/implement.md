@@ -39,7 +39,7 @@
 
 - 执行 `npm test`、`npm run verify:provenance`、`npm run pack:check`、`npm pack --dry-run --json --ignore-scripts`、修改 `.mjs` 的 `node --check`、任务校验、`trellis update --dry-run`、`git diff --check` 和 `trellis-check`。
 - 执行 WSL Devin 无显式 key 的十次保留查询与三种等价措辞，另测静态无效 key 的 `FC_AUTH_REJECTED`，只保存脱敏汇总。
-- 验证源码和 tarball 安装入口一致后，才依发布合同完成 `0.1.6` 的产物、证明、tag、远端发布和公开 tarball SHA-256 验证。任一门槛失败时仅提交可复现修复候选，不发布。
+- 验证源码和 tarball 安装入口一致后，才依发布合同完成补丁版本的产物、证明、tag、远端发布和公开 tarball SHA-256 验证。任一门槛失败时仅提交可复现修复候选，不发布。
 
 ## 当前验收结论
 
@@ -52,3 +52,10 @@
 - 同窗口通过原版 `@sammysnake/fast-context-mcp@1.3.2` 标准 stdio 入口复核，MCP 初始化、工具枚举和 Devin 自动凭据发现均成功，但搜索连续返回固定 `capacity_or_rate_limited`，没有本地有效候选；Windsurf 官方文档仅确认用量额度按计划刷新，没有公开该接口的固定 cooldown 时长。
 - `0.1.6` 最终离线质量门为 `npm test` 109/109、provenance 17 文件、包内容 17 文件、13 个修改 `.mjs` 语法通过，并通过任务校验、Trellis dry-run 和 Git 空白检查；未发现调试输出、硬编码凭据、TLS 降级、任意执行或响应正文泄漏。
 - 用户于 `2026-08-11` 明确接受真实 `10/10` 因外部账户或容量门控未能在修复后重跑的残余风险，并授权按既有 `0.1.4`/`0.1.5` 路线发布 `0.1.6`。该授权是发布决策，不把未执行的真实门槛记为通过，也不代表根仓库 Issue 已关闭。
+
+## `v0.1.6` 发布门失败与 `v0.1.7` 纠正
+
+- `v0.1.6` 的源码、工件 C、证明 E、annotated tag 和固定 NAS `release:verify-evidence` 均通过；GitHub Actions run `31477461013` 在 `validate` 的 `npm test` 阶段失败，`publish` 被跳过，registry 中没有发布 `0.1.6`。
+- 失败测试让核心协议夹具执行真实 rg，却无条件期待成功；本地和 NAS 存在固定 rg 路径，GitHub runner 不存在时产品正确报告 `truncated/local_tool_failure`。该宿主工具隐式依赖使测试不确定，不是运行时协议回归。
+- 修复为 `search()` 的离线 ToolExecutor 注入仅接受 `rgBinary` 与 `runProcess`，成功路径使用固定 rg JSON，缺失路径独立断言失败关闭。已推送的 `v0.1.6` tag 不移动、不删除、不复用；纠正发布版本递增为 `0.1.7`。
+- `0.1.7` 修正后的完整本地门槛为 `npm test` 110/110、provenance 17 文件、包检查 1/1、相对 `v0.1.6` 变更的 2 个 `.mjs` 语法通过、任务校验/Trellis dry-run/Git 空白检查通过。`npm pack --dry-run --json --ignore-scripts` 为 17 个包文件、39,950 bytes，且不包含 `docs/releases` 历史证据目录。

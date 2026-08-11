@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.6",
+  "package": "@pennixrv/fast-context-skill@0.1.7",
   "source_repository": "https://github.com/PennixRv/fast-context-skill",
   "upstream": {
     "repository": "https://github.com/oulkurt/fast-context-skill",
@@ -34,7 +34,7 @@
     "references/script-contract.md": "b963982ccf00a890965ac1c6531ce4544adcc5ab4235555f9ee2b8fc78f4e586",
     "scripts/fast-context-search.mjs": "2d14358192d7f905220bfcd4be530f843e35d5ee67196c01e6096bc1fcdc4ef1",
     "scripts/lib/LICENSE.fast-context-mcp": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
-    "scripts/lib/core.mjs": "88dd1f48409a10792e03e421d96b796d1744dbba07977b643d57c4ce13f107d2",
+    "scripts/lib/core.mjs": "84d5aed3888b80c3ef9351b6e9d0d3ad7d1688440dc5831f4f79c9ff72e6f0f3",
     "scripts/lib/credentials.mjs": "d21cec35688727272340ddc30875bc982f4914843e76d947951e4256fd1a931d",
     "scripts/lib/devin-credential-helper.mjs": "803ef84423c90b78f6c6a7ad410a2a8f2d5fd417ec2fac1d3654b770d99d3301",
     "scripts/lib/executor.mjs": "87ff4c758764c601a53e0398cc0ff79af46edad7a27bea96f474e1d032a2f5cb",

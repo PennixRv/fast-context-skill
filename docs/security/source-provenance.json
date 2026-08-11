@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.6",
+  "package": "@pennixrv/fast-context-skill@0.1.7",
   "baseline": {
     "repository": "https://github.com/PennixRv/fast-context-skill",
     "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"
@@ -65,7 +65,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Patch release identity and exact individual-file runtime allowlist.",
-      "shipped_sha256": "2d0ed3003058035c0c5b9b0bf003653bca9f11190e1a2fcf6e9518f480b1b0bd"
+      "shipped_sha256": "177f25c4fa5748f3bf930496e80daf1563be58e015a83e9d75273336b0cbfc72"
     },
     {
       "path": "references/script-contract.md",
@@ -79,7 +79,7 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "9df4b942469acd551d8ac7f9daf2320ce1cc9831ae4e8d7e374541b60732f113"
+      "shipped_sha256": "ce00469218e09d20c5ebafab295e107690ee1399866f411e5f8fd2a36186803e"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -103,8 +103,8 @@
       "path": "scripts/lib/core.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Bounded protocol client with safe command/answer envelope repair, one per-request format replacement, non-erasing answer-shape correction, fixed session recovery, single implementation/import evidence projection, strict local ranges, and fixed internal diagnostics.",
-      "shipped_sha256": "88dd1f48409a10792e03e421d96b796d1744dbba07977b643d57c4ce13f107d2"
+      "change_summary": "Bounded protocol client with safe command/answer envelope repair, one per-request format replacement, non-erasing answer-shape correction, fixed session recovery, single implementation/import evidence projection, strict local ranges, fixed internal diagnostics, and deterministic executor dependency injection for offline tests.",
+      "shipped_sha256": "84d5aed3888b80c3ef9351b6e9d0d3ad7d1688440dc5831f4f79c9ff72e6f0f3"
     },
     {
       "path": "scripts/lib/credentials.mjs",

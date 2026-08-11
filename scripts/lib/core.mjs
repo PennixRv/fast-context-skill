@@ -1066,6 +1066,10 @@ function searchCoverage(budget, repoMap, executor) {
  *   resourceLimits?: Partial<typeof import("./path-guard.mjs").RESOURCE_LIMITS>,
  *   now?: () => number,
  *   waitImpl?: (signal: AbortSignal, delayMs: number) => Promise<void>,
+ *   executorOptions?: {
+ *     rgBinary?: string,
+ *     runProcess?: typeof import("./executor.mjs").runBoundedProcess,
+ *   },
  *   onProtocolEvent?: (event: { turn: number, final_turn: boolean, event?: string, tool_name?: string, command_index?: string, command_type?: string, status?: string, reason?: string | null, code?: string | null, protocol_reason?: string }) => void,
  * }} options
  */
@@ -1080,6 +1084,7 @@ export async function search({
   resourceLimits,
   now,
   waitImpl = waitForStreamRetry,
+  executorOptions,
   onProtocolEvent,
 }) {
   if (typeof query !== "string" || query.trim().length === 0) {
@@ -1115,6 +1120,8 @@ export async function search({
     notifyProtocol(onProtocolEvent, { event: "rate_limit_preflight", status: "complete" });
     let observedTurn = 0;
     const executor = new ToolExecutor(guard, {
+      rgBinary: executorOptions?.rgBinary,
+      runProcess: executorOptions?.runProcess,
       budget,
       onCommandResult(event) {
         notifyProtocol(onProtocolEvent, {

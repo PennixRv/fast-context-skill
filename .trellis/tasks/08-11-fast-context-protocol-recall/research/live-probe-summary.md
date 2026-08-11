@@ -267,3 +267,16 @@ Automatic Credit Refills 会在余额低于 15 credits 时按配置补充。两�
 未解决事故为 0。因此，结合原版 MCP 同窗口返回的固定 `capacity_or_rate_limited`，当前证据支持
 “账户、会话或内部容量门控窗口”，不支持“已知固定分钟数的全局冷却”。后续探针应使用指数退避和
 低频交错 A/B，不根据猜测的分钟数循环调用；只有真实入口重新可用后才执行完整发布验收。
+
+## 2026-08-11 `v0.1.6` 发布校验环境回归
+
+用户明确接受外部真实 `10/10` 未重跑的残余风险并授权发布后，`v0.1.6` 在固定
+`Node 26.5.1/npm 12.0.1` 的 NAS 完成工件构建、认证 preflight 和 tag 证据重建。GitHub Actions
+run `31477461013` 随后在 `validate` 的 `npm test` 阶段以 108/109 失败，`publish` 按设计跳过，
+npm registry 未写入该版本。
+
+失败用例要求远端 answer 已有合法实现候选时不暴露无关 rg 探索命中，但测试让核心执行器自行寻找
+宿主 rg。存在 `/usr/bin/rg` 的本机和 NAS 返回 `complete`；固定路径不可用的 runner 触发正确的
+`local_tool_failure`，聚合状态为 `truncated`。纠正测试通过 `executorOptions` 注入绝对假 binary
+与固定 rg JSON，并新增相对 binary 失败关闭回归。不可变 `v0.1.6` tag 保留为失败证据，后续发布
+递增为 `0.1.7`；不得通过移动 tag 或重复运行宿主相关测试掩盖失败。
