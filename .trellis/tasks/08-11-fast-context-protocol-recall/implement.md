@@ -46,3 +46,9 @@
 - 离线协议、CLI 生命周期、provenance、包内容和 tarball 安装入口测试均可重复通过；无效静态 key 保持 `FC_AUTH_REJECTED`。
 - 最近一轮完整结果为 source 保留 `9/10`、三措辞 `3/3`、packed `3/3`；唯一协议失败已通过脱敏诊断定位为跨 executable 轮共享格式纠正计数器，并改为每个逻辑远端请求一次替代。
 - 修复后批次前四次均命中目标且无协议错误，随后进入持续 `FC_REMOTE_UNAVAILABLE` 容量窗口；独立单次复核仍为该固定可用性错误。真实 `10/10` 门槛尚未通过，因此当前先提交固定源码候选，不打 tag、不发布。详见 `research/live-probe-summary.md` 和 `research/retry-scope-root-cause.md`。
+
+## 发布授权与残余风险
+
+- 同窗口通过原版 `@sammysnake/fast-context-mcp@1.3.2` 标准 stdio 入口复核，MCP 初始化、工具枚举和 Devin 自动凭据发现均成功，但搜索连续返回固定 `capacity_or_rate_limited`，没有本地有效候选；Windsurf 官方文档仅确认用量额度按计划刷新，没有公开该接口的固定 cooldown 时长。
+- `0.1.6` 最终离线质量门为 `npm test` 109/109、provenance 17 文件、包内容 17 文件、13 个修改 `.mjs` 语法通过，并通过任务校验、Trellis dry-run 和 Git 空白检查；未发现调试输出、硬编码凭据、TLS 降级、任意执行或响应正文泄漏。
+- 用户于 `2026-08-11` 明确接受真实 `10/10` 因外部账户或容量门控未能在修复后重跑的残余风险，并授权按既有 `0.1.4`/`0.1.5` 路线发布 `0.1.6`。该授权是发布决策，不把未执行的真实门槛记为通过，也不代表根仓库 Issue 已关闭。
