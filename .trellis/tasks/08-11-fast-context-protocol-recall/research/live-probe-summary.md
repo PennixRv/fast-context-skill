@@ -97,3 +97,27 @@ source/tarball 批次随后确认入口空 stdout 回归已消除：前五个 so
 key 继续为 `FC_AUTH_REJECTED` 且 stdout 为空。由于十次成功、三种措辞和 tarball 真实入口门槛尚未
 全部满足，候选仍不得发布。所有记录仅含固定状态、计数和本地验证相对范围；没有 key、JWT、请求
 标识、绝对路径或远端正文。
+
+## 2026-08-11 交错请求差分与结论修正
+
+为区分服务容量、请求形状和 fork 实现差异，在临时四文件夹具中以 `env -u WINDSURF_API_KEY` 运行了
+低频、脱敏的交错探针。探针只保留阶段、HTTP 状态、固定头是否存在、请求字节/字段长度、固定公开
+错误码和固定 Connect 类别；不保留 API key、JWT、请求/响应正文、请求标识、绝对路径或临时目录。
+
+在可连通窗口中，fork 的 JWT 与 `CheckUserMessageRateLimit` 均为 HTTP `200`，第一条流请求及其两次
+有界重试均以结构合法的 `connect_end_stream_resource_exhausted` 结束。将公开 MCP `v1.3.2` 临时副本
+替换为与 fork 相同的固定 OS/CPU/内存 metadata、移除 Sentry 头后，不能据此证明 MCP 成功：旧 MCP 的
+宽松 Connect 解码会把终止错误投影为普通 `{ files: [], error: ... }` 结果。早期比较器仅根据存在
+`files` 数组将其归为“结果”，这是错误分类，已在比较器中改为只记录 `remote_error_present` 与
+`raw_response_present` 布尔值；此前零候选的 MCP 对照不再作为服务可用或召回成功证据。
+
+已完成的结构对齐实验也不能作为产品修复依据：在临时副本中单独或组合恢复 MCP 的完整提示词、丰富
+工具 schema、八个命令槽位、深度三地图包装和固定 `Connect-Timeout-Ms: 30000`，fork 仍收到同一固定
+容量终止。最后一次对齐试验中，已记录的首流字段长度、固定 Connect 头和压缩帧长度与安全化 MCP
+副本一致；但两端各自取得 JWT，且不会读取、导出或复用真实 JWT。因此该实验排除了若干明文请求
+结构假设，不能排除短暂服务容量或 JWT 会话分配差异。
+
+随后 fork 和 MCP 的 JWT 请求均出现连接建立前的 `transport_failure`，没有产生可比流结果。真实网络
+验收在此停止，避免把传输故障扩大为重复探针。当前可信结论是：fork 必须继续将有效 Connect
+`resource_exhausted` 失败关闭为 `FC_REMOTE_UNAVAILABLE`；不得模仿旧 MCP 将远端错误折叠为零候选结果。
+尚无足够证据将剩余不稳定性归因于 metadata、Sentry、提示词长度、命令槽数量、地图包装或声明超时。
