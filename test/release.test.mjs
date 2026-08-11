@@ -34,6 +34,7 @@ test("the diagnostic live-probe entry awaits credential discovery before it exit
     assert.match(liveProbe, /const probeKeepalive = setInterval/);
     assert.match(liveProbe, /clearInterval\(probeKeepalive\)/);
     assert.match(liveProbe, /const PROBE_INTER_RUN_DELAY_MS = 10_000/);
+    assert.match(liveProbe, /process\.argv\.includes\("--diagnose-once"\)/);
     assert.match(liveProbe, /if \(index > 0\) await waitForProbeInterval\(\)/);
   } finally {
     rmSync(temporaryHome, { recursive: true, force: true });

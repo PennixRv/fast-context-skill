@@ -380,7 +380,9 @@ async function runProbe() {
     cpSync(FIXTURE_DIRECTORY, projectRoot, { recursive: true });
     const queries = process.argv.includes("--diagnose-retained")
       ? Array.from({ length: 10 }, () => RETAINED_QUERY)
-      : QUERY_VARIANTS;
+      : process.argv.includes("--diagnose-once")
+        ? [RETAINED_QUERY]
+        : QUERY_VARIANTS;
     await diagnose(projectRoot, queries);
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
