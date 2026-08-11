@@ -235,3 +235,19 @@ executable 阶段，而不是一个逻辑远端请求。
 `FC_REMOTE_UNAVAILABLE`。该批已不可能满足 `10/10`，因此主动终止后续变体，避免继续占用远端
 容量。已观察的九次中没有 `FC_PROTOCOL_INVALID` 或伪空成功；但容量失败仍使整批无效，必须在
 独立冷却窗口重新执行完整正式门槛。
+
+## 2026-08-11 冷却窗口的原版 MCP 标准入口复核
+
+在 fork 单次探针持续返回 `FC_REMOTE_UNAVAILABLE` 后，使用 npm 发布的原版
+`@sammysnake/fast-context-mcp@1.3.2` 标准 `src/server.mjs` stdio JSON-RPC 入口执行严格 A/B。
+两次调用使用同一四文件夹具、同一保留查询，并通过 `env -u WINDSURF_API_KEY` 仅使用既有 WSL
+Devin 自动发现；`FC_HIDE_EXTRACT_WINDSURF_KEY_TOOL=1` 保证凭据提取工具不可见。
+
+两次 MCP 初始化、工具枚举和搜索工具调用均正常完成，搜索工具可见且凭据提取工具不可见；耗时分别
+约 `1.45s` 和 `1.61s`。两次结果均为原版错误表面，第二次仅在进程内将原版输出映射为固定
+`capacity_or_rate_limited` 类别；均无候选和本地有效范围。探针没有输出或保存原版错误正文、key、
+JWT、请求标识、绝对路径或远端响应。
+
+该 A/B 说明当前时点的容量或速率限制同时影响原版 MCP，不能归因于 fork 独有的 answer 协议路径，
+也不能据此宣称原版实现存在缺陷。服务窗口恢复后应先交错执行一次原版 MCP 与一次 fork 单点探针；
+两者均可用后才执行 fork 的 `10/10`、三种措辞、packed 入口和无效凭据完整发布门槛。
