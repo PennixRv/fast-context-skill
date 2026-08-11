@@ -251,3 +251,19 @@ JWT、请求标识、绝对路径或远端响应。
 该 A/B 说明当前时点的容量或速率限制同时影响原版 MCP，不能归因于 fork 独有的 answer 协议路径，
 也不能据此宣称原版实现存在缺陷。服务窗口恢复后应先交错执行一次原版 MCP 与一次 fork 单点探针；
 两者均可用后才执行 fork 的 `10/10`、三种措辞、packed 入口和无效凭据完整发布门槛。
+
+## 2026-08-11 Windsurf 官方额度与冷却机制调查
+
+Windsurf 当前公开的[价格页](https://windsurf.com/pricing)明确说明付费计划具有 usage allowance，
+并按每日和每周自动刷新；[Plans and Usage](https://docs.windsurf.com/windsurf/accounts/usage)
+还说明旧 Enterprise credit 计划的 prompt credits 按月发放并在新 billing cycle 开始时重置，可选的
+Automatic Credit Refills 会在余额低于 15 credits 时按配置补充。两份官方材料共同证明 Windsurf
+存在用量额度和恢复窗口，但不同计划采用不同计量与恢复方式。
+
+官方文档索引和账户 API 文档没有公开 `CheckUserMessageRateLimit`、`resource_exhausted`、
+`Retry-After`、固定 cooldown 时长或可供该非公开语义检索接口读取的精确重置时间。调查时的
+[官方状态 API](https://status.windsurf.com/api/v2/summary.json) 更新时间为
+`2026-08-11T05:49:45.903Z`，整体为 `All Systems Operational`，`Cascade` 为 `operational`，
+未解决事故为 0。因此，结合原版 MCP 同窗口返回的固定 `capacity_or_rate_limited`，当前证据支持
+“账户、会话或内部容量门控窗口”，不支持“已知固定分钟数的全局冷却”。后续探针应使用指数退避和
+低频交错 A/B，不根据猜测的分钟数循环调用；只有真实入口重新可用后才执行完整发布验收。
