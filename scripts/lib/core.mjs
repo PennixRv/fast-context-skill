@@ -25,7 +25,9 @@ const MAX_RESPONSE_BYTES = CONNECT_LIMITS.MAX_RESPONSE_COMPRESSED_BYTES;
 const MAX_TOOL_FORMAT_RETRIES = 1;
 const MAX_ANSWER_FORMAT_RETRIES = 1;
 const MAX_STREAM_RETRIES = 2;
-const STREAM_RETRY_BACKOFF_MS = 250;
+const MAX_SESSION_REFRESHES = 2;
+const STREAM_RETRY_BACKOFF_MS = 1_000;
+const SESSION_REFRESH_BACKOFF_MS = 5_000;
 const MAX_TOOL_ARGS_BYTES = 16 * 1024;
 // Three bounded local-tool rounds plus one answer-only protocol turn.
 const MAX_TURNS = 4;
@@ -388,33 +390,33 @@ function commandSchema(index) {
     oneOf: [
       {
         properties: {
-          type: { type: "string", const: "rg" },
-          pattern: { type: "string" },
-          path: { type: "string" },
+          type: { type: "string", const: "rg", description: "Search file contents with ripgrep." },
+          pattern: { type: "string", description: "A bounded ripgrep pattern." },
+          path: { type: "string", description: "An existing /codebase file or directory." },
         },
         required: ["type", "pattern", "path"],
       },
       {
         properties: {
-          type: { type: "string", const: "readfile" },
-          file: { type: "string" },
-          start_line: { type: "integer" },
-          end_line: { type: "integer" },
+          type: { type: "string", const: "readfile", description: "Read numbered source rows." },
+          file: { type: "string", description: "An existing /codebase file." },
+          start_line: { type: "integer", description: "Positive inclusive first row." },
+          end_line: { type: "integer", description: "Positive inclusive last row." },
         },
         required: ["type", "file"],
       },
       {
         properties: {
-          type: { type: "string", const: "tree" },
-          path: { type: "string" },
-          levels: { type: "integer" },
+          type: { type: "string", const: "tree", description: "Display a bounded directory tree." },
+          path: { type: "string", description: "An existing /codebase directory." },
+          levels: { type: "integer", description: "Bounded depth." },
         },
         required: ["type", "path"],
       },
       {
         properties: {
-          type: { type: "string", const: "ls" },
-          path: { type: "string" },
+          type: { type: "string", const: "ls", description: "List a bounded directory." },
+          path: { type: "string", description: "An existing /codebase directory." },
           long_format: { type: "boolean" },
           all: { type: "boolean" },
         },
@@ -422,9 +424,9 @@ function commandSchema(index) {
       },
       {
         properties: {
-          type: { type: "string", const: "glob" },
-          pattern: { type: "string" },
-          path: { type: "string" },
+          type: { type: "string", const: "glob", description: "Find bounded paths by glob." },
+          pattern: { type: "string", description: "A relative glob pattern." },
+          path: { type: "string", description: "An existing /codebase file or directory." },
           type_filter: { type: "string", enum: ["all", "file", "directory"] },
         },
         required: ["type", "pattern", "path"],
@@ -444,7 +446,7 @@ function toolDefinitions({ allowRestrictedExec = true } = {}) {
       type: "function",
       function: {
         name: "restricted_exec",
-        description: "Execute only declared filesystem tools in /codebase.",
+        description: "Execute up to four declared rg, readfile, tree, ls, or glob commands in /codebase.",
         parameters: { type: "object", properties, required: ["command1"] },
       },
     });
@@ -456,7 +458,12 @@ function toolDefinitions({ allowRestrictedExec = true } = {}) {
         description: "Return locally evidenced candidate files and ranges, or the exact no-results marker.",
         parameters: {
           type: "object",
-          properties: { answer: { type: "string" } },
+          properties: {
+            answer: {
+              type: "string",
+              description: "Final XML with locally evidenced /codebase paths and inclusive line ranges.",
+            },
+          },
           required: ["answer"],
         },
       },
@@ -484,27 +491,39 @@ function formatRepositoryMap(repoMap) {
 
 function systemPrompt(maxResults) {
   return [
-    "You are an expert software engineer providing candidate source context for another engineer.",
-    "Return files and complete semantic blocks relevant to the requested behavior, including verified implementation and tests when useful.",
-    "Use restricted_exec only with /codebase paths.",
-    "Never request hidden, credential, generated, or repository metadata paths.",
+    "You are an expert software engineer providing source context to another engineer who must understand and change the current codebase.",
+    "Return every file needed to understand the requested behavior, not only files likely to be edited. Include complete semantic blocks when the available read range permits it.",
+    "",
+    "# ENVIRONMENT",
+    "The working directory is /codebase. Use restricted_exec only with declared /codebase paths.",
+    "Never request hidden, credential, generated, repository metadata, outside-root, or symlink-escaping paths.",
+    "Never send shell text, cwd, paths outside /codebase, unsupported command fields, comments, or a JSON array.",
+    "",
+    "# THINKING AND SEARCH",
     "Think step-by-step before each tool request. Only an exact tool envelope is protocol-bearing: the client discards all text outside it, never executes that text, and never sends it back in a later request.",
+    "Use MAP to orient from the repository map, ANCHOR with narrow rg searches, TRACE imports with targeted rg, then VERIFY candidates with readfile.",
+    "Start narrow in likely source roots and widen only when needed. Tree, ls, glob, and rg are orientation or anchor evidence, not final range proof.",
+    "After an rg result identifies a plausible implementation path, the next restricted_exec call must reserve at least one command for readfile on the strongest implementation candidate before issuing more widening searches.",
+    "Read the implementation before its test whenever both are available. Never return a test as the only candidate when a verified implementation is available.",
+    "If a command fails or returns no matches, change the search strategy within the remaining bounded turns.",
+    "",
+    "# TOOL FORMAT",
     "A restricted call is exactly [TOOL_CALLS]restricted_exec[ARGS] followed immediately by one complete JSON object with one to four command1 through command4 properties.",
     "Each command is exactly one declared object: rg needs type, pattern, path; readfile needs type, file, start_line, end_line; tree needs type, path, levels; ls needs type, path; glob needs type, pattern, path.",
-    "Example: [TOOL_CALLS]restricted_exec[ARGS]{\"command1\":{\"type\":\"rg\",\"pattern\":\"symbol\",\"path\":\"/codebase/src\"},\"command2\":{\"type\":\"readfile\",\"file\":\"/codebase/src/example.ts\",\"start_line\":1,\"end_line\":40}}",
-    "Never send shell text, cwd, paths outside /codebase, unsupported command fields, comments, or a JSON array.",
-    "Use MAP to orient from the repository map, ANCHOR with narrow rg searches, then VERIFY every returned candidate with readfile.",
-    "TRACE imports only with narrowed rg searches. Use tree for orientation, not proof. Use glob only to enumerate a bounded path pattern.",
-    "A candidate is not established by a tree, ls, glob, or rg hit alone. Include complete relevant functions/classes and direct tests only after reading that exact file.",
-    "For a behavior query, the verified implementation is primary. When a direct test is relevant, locate and read the implementation it exercises before answering; never return a test as the only candidate when a verified implementation is available.",
-    "Use no more than three restricted_exec rounds. Once the local evidence is sufficient, call answer immediately; never request another tool turn solely to use a remaining round.",
-    "readfile returns numbered rows as N:source and a locally generated read_range with its exact inclusive bounds. Before returning each candidate range, copy its positive N-N bounds from that read_range and keep it wholly within those rows; never estimate paths or line numbers.",
-    "After at most three restricted_exec calls, the following turn must return answer using only the locally verified evidence available.",
+    "Example: [TOOL_CALLS]restricted_exec[ARGS]{\"command1\":{\"type\":\"rg\",\"pattern\":\"symbol\",\"path\":\"/codebase/src\"},\"command2\":{\"type\":\"readfile\",\"file\":\"/codebase/src/example.ts\",\"start_line\":1,\"end_line\":80}}",
+    "Use no more than three restricted_exec rounds and no more than four commands per round. Once local evidence is sufficient, call answer immediately; never request another tool turn solely to use a remaining round.",
+    "readfile returns numbered rows as N:source and a locally generated read_range with exact inclusive bounds. Copy candidate bounds from read_range; never estimate a path or line number.",
+    "",
+    "# ANSWER FORMAT",
     "Finish exactly as [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object with an answer field.",
-    "The answer field contains an <ANSWER> root with <file path=\"/codebase/relative\"><range>start-end</range></file> entries. A file may contain multiple ranges; every positive range comes from a prior readfile result. Do not include a file or range when it cannot be copied from N:source rows.",
+    "The answer field contains an <ANSWER> root with <file path=\"/codebase/relative\"><range>start-end</range></file> entries. A file may contain multiple inclusive ranges, each copied from prior readfile evidence.",
     "Example: [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER><file path=\\\"/codebase/src/example.ts\\\"><range>10-20</range><range>40-60</range></file></ANSWER>\"}",
-    "When no relevant candidate exists after the available local evidence, return exactly [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER></ANSWER>\"}.",
-    `Return at most ${maxResults} candidate entries and never guess paths or line ranges.`,
+    "After at most three restricted_exec calls, the following turn must call answer using the locally verified evidence already available.",
+    "",
+    "# NO RESULTS",
+    "Only after thorough bounded searching finds no relevant candidate, return exactly [TOOL_CALLS]answer[ARGS]{\"answer\":\"<ANSWER></ANSWER>\"}.",
+    "An empty answer is better than an unrelated file, but never use an empty answer when local tool evidence identified a relevant implementation.",
+    `Return at most ${maxResults} candidate entries, ordered with the strongest implementation evidence first.`,
   ].join("\n");
 }
 
@@ -534,10 +553,21 @@ function answerCorrectionPrompt(projection, maxResults) {
   ].join("\n");
 }
 
+function answerShapeCorrectionPrompt(maxResults) {
+  return [
+    "The previous answer did not use the required explicit candidate or no-result structure.",
+    "This is the only answer-format correction attempt. Call answer now and do not request restricted_exec or any other tool.",
+    "Your entire response must be exactly [TOOL_CALLS]answer[ARGS] followed immediately by one complete JSON object.",
+    "Inside the answer field, use <ANSWER><file path=\"/codebase/relative\"><range>start-end</range></file></ANSWER> with ranges copied from prior readfile evidence.",
+    "If and only if there is no locally evidenced candidate, use exactly <ANSWER></ANSWER>. Do not use prose or guess a path or line range.",
+    `Return at most ${maxResults} candidate entries.`,
+  ].join("\n");
+}
+
 function toolFormatCorrectionPrompt(finalTurn) {
   const allowedTool = finalTurn ? "answer" : "restricted_exec or answer";
   return [
-    "The previous tool-call envelope was invalid. This is the only tool-format correction attempt.",
+    "The previous tool-call envelope was invalid. This is the only tool-format correction attempt for this request.",
     `Call only ${allowedTool} using exactly [TOOL_CALLS]tool_name[ARGS] followed immediately by one valid JSON object.`,
     "The first character must be [, and there must be no prose, Markdown, XML, code fence, comment, trailing comma, or text outside the JSON object.",
     finalTurn
@@ -556,6 +586,109 @@ function canRetryAnswerFormat(answerResult) {
   return answerResult.projection.rejection_reasons.length > 0
     && answerResult.projection.rejection_reasons.every((reason) => retryableReasons.has(reason))
     && !answerResult.coverage.reasons.includes("candidate_changed");
+}
+
+function repairJsonText(text) {
+  return String(text)
+    .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)"\s*:/g, '$1"$2":')
+    .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)\s*:/g, '$1"$2":')
+    .replace(/,\s*([}\]])/g, "$1");
+}
+
+function parseJsonWithBoundedRepair(text) {
+  try {
+    return { value: JSON.parse(text), recovery: null };
+  } catch {
+    const repaired = repairJsonText(text);
+    if (repaired === text) return null;
+    try {
+      return { value: JSON.parse(repaired), recovery: "json_repaired" };
+    } catch {
+      return null;
+    }
+  }
+}
+
+function extractBalancedObject(text, start) {
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === "{") depth += 1;
+    else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return null;
+}
+
+function salvageRestrictedExecArgs(text) {
+  const commands = {};
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  let previousSignificant = null;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      if (depth !== 1 || (previousSignificant !== "{" && previousSignificant !== ",")) {
+        quote = character;
+        continue;
+      }
+    }
+    if (depth === 1 && (previousSignificant === "{" || previousSignificant === ",")) {
+      const match = text.slice(index).match(/^(?:["'](command[1-4])["']|(command[1-4]))\s*:\s*(\{)/);
+      if (match) {
+        const commandKey = match[1] || match[2];
+        const start = index + match[0].lastIndexOf("{");
+        const objectText = extractBalancedObject(text, start);
+        if (objectText) {
+          const parsed = parseJsonWithBoundedRepair(objectText);
+          if (
+            parsed?.value
+            && typeof parsed.value === "object"
+            && !Array.isArray(parsed.value)
+            && ["rg", "readfile", "tree", "ls", "glob"].includes(parsed.value.type)
+          ) {
+            commands[commandKey] = parsed.value;
+          }
+          index = start + objectText.length - 1;
+          previousSignificant = "}";
+          continue;
+        }
+      }
+    }
+    if (character === "{") depth += 1;
+    else if (character === "}") depth -= 1;
+    if (!/\s/.test(character)) previousSignificant = character;
+  }
+  return Object.keys(commands).length > 0 ? commands : null;
+}
+
+function salvageAnswerArgs(text) {
+  const match = String(text).match(/^\s*\{\s*"answer"\s*:\s*("(?:\\.|[^"\\])*")/s);
+  if (!match) return null;
+  try {
+    const answer = JSON.parse(match[1]);
+    return typeof answer === "string" ? { answer } : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseToolCall(text) {
@@ -587,18 +720,25 @@ function parseToolCall(text) {
       }
     }
   }
-  if (end < 0) throw retryableToolFormatError();
-  const json = source.slice(0, end);
-  const trailing = source.slice(end).trim();
-  if (trailing !== "" && trailing !== "</s>") throw retryableToolFormatError();
+  const json = end < 0 ? source : source.slice(0, end);
   if (Buffer.byteLength(json, "utf8") > MAX_TOOL_ARGS_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
-  let args;
-  try {
-    args = JSON.parse(json);
-  } catch {
-    throw retryableToolFormatError();
+  if (end >= 0) {
+    const trailing = source.slice(end).trim();
+    if (trailing !== "" && trailing !== "</s>") throw retryableToolFormatError();
   }
-  return { name, args };
+  const parsed = parseJsonWithBoundedRepair(json);
+  if (parsed?.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)) {
+    return { name, args: parsed.value, recovery: parsed.recovery };
+  }
+  if (name === "restricted_exec") {
+    const args = salvageRestrictedExecArgs(json);
+    if (args) return { name, args, recovery: "commands_salvaged" };
+  }
+  if (name === "answer") {
+    const args = salvageAnswerArgs(repairJsonText(json));
+    if (args) return { name, args, recovery: "answer_salvaged" };
+  }
+  throw retryableToolFormatError();
 }
 
 function isRetryableStreamFailure(error) {
@@ -608,6 +748,11 @@ function isRetryableStreamFailure(error) {
       "connect_end_stream_unavailable",
       "http_rate_limited",
     ].includes(error?.protocolReason);
+}
+
+function isRefreshableCapacityFailure(error) {
+  return error?.code === "FC_REMOTE_UNAVAILABLE"
+    && error?.protocolReason === "connect_end_stream_resource_exhausted";
 }
 
 async function waitForStreamRetry(signal, delayMs) {
@@ -628,7 +773,7 @@ async function waitForStreamRetry(signal, delayMs) {
   });
 }
 
-async function requestToolCall(request, fetchImpl, budget, onRetry) {
+async function requestToolCall(request, fetchImpl, budget, onRetry, waitImpl = waitForStreamRetry) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       const response = await streamingRequest(
@@ -650,7 +795,7 @@ async function requestToolCall(request, fetchImpl, budget, onRetry) {
       const remaining = budget.remainingMs();
       const delay = Math.min(STREAM_RETRY_BACKOFF_MS * retry, Math.max(0, remaining - 1));
       if (delay <= 0) throw error;
-      await waitForStreamRetry(budget.signal, delay);
+      await waitImpl(budget.signal, delay);
     }
   }
 }
@@ -684,6 +829,10 @@ function queryTerms(query) {
   )].slice(0, 8);
 }
 
+function isTestPath(relativePath) {
+  return /(^|\/)(?:__tests__|test|tests|spec)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(relativePath);
+}
+
 async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, executor) {
   if (typeof answer !== "string" || Buffer.byteLength(answer, "utf8") > MAX_TOOL_ARGS_BYTES) {
     throw protocolError("answer_argument_invalid");
@@ -701,6 +850,7 @@ async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, ex
       projection: {
         remote_candidates: 0,
         accepted_candidates: 0,
+        recovered_candidates: 0,
         rejected_candidates: 0,
         unprocessed_candidates: 0,
         rejection_reasons: [],
@@ -718,15 +868,51 @@ async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, ex
   const fileExpression = /<file\s+path=(["'])([^"']+)\1>([\s\S]*?)<\/file>/g;
   let matchedFileElements = 0;
   let remoteCandidates = 0;
+  let recoveredCandidates = 0;
   let rejectedCandidates = 0;
   let unprocessedCandidates = 0;
   const rejectionReasons = new Set();
+  const addCandidate = (validated, { prepend = false } = {}) => {
+    const identity = `${validated.relativePath}:${validated.startLine}-${validated.endLine}`;
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    const candidate = {
+      path: validated.relativePath,
+      start_line: validated.startLine,
+      end_line: validated.endLine,
+      reason: "local_range_validated",
+    };
+    if (prepend) candidates.unshift(candidate);
+    else candidates.push(candidate);
+    return true;
+  };
+  const recoverCandidate = async (
+    path,
+    preferredRange = null,
+    reason = "remote_candidate_range_recovered",
+  ) => {
+    if (budget.snapshot().reasons.includes("candidate_changed")) return null;
+    try {
+      const recovered = await executor.recoverCandidateRange(path, preferredRange);
+      if (recovered) budget.markTruncated(reason);
+      return recovered;
+    } catch (error) {
+      if (budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw networkError();
+      return null;
+    }
+  };
   let match;
   while ((match = fileExpression.exec(answer)) !== null) {
     matchedFileElements += 1;
     const ranges = [...match[3].matchAll(/<range>([1-9]\d*)-([1-9]\d*)<\/range>/g)];
     if (ranges.length === 0) {
       remoteCandidates += 1;
+      if (candidates.length >= maxResults) {
+        unprocessedCandidates += 1;
+        continue;
+      }
+      const recovered = await recoverCandidate(match[2]);
+      if (recovered && addCandidate(recovered)) continue;
       rejectedCandidates += 1;
       rejectionReasons.add("remote_candidate_missing_range");
       continue;
@@ -753,6 +939,8 @@ async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, ex
         continue;
       }
       if (!validated) {
+        const recovered = await recoverCandidate(match[2], { start_line: startLine, end_line: endLine });
+        if (recovered && addCandidate(recovered)) continue;
         rejectedCandidates += 1;
         rejectionReasons.add(
           budget.snapshot().reasons.includes("candidate_changed")
@@ -761,31 +949,67 @@ async function parseAnswer(answer, guard, maxResults, query, budget, repoMap, ex
         );
         continue;
       }
-      const identity = `${validated.relativePath}:${validated.startLine}-${validated.endLine}`;
-      if (seen.has(identity)) {
+      if (!addCandidate(validated)) {
         rejectedCandidates += 1;
         rejectionReasons.add("remote_candidate_duplicate");
-        continue;
       }
-      seen.add(identity);
-      candidates.push({
-        path: validated.relativePath,
-        start_line: validated.startLine,
-        end_line: validated.endLine,
-        reason: "local_range_validated",
-      });
     }
   }
   const malformedCandidates = Math.max(0, candidateMarkers.length - matchedFileElements);
   if (malformedCandidates > 0) rejectionReasons.add("remote_candidate_malformed");
   remoteCandidates += malformedCandidates;
   rejectedCandidates += malformedCandidates;
+  if (candidates.length < maxResults) {
+    const implementationCandidates = candidates.filter((candidate) => !isTestPath(candidate.path));
+    const readEvidence = executor.implementationEvidencePaths({ includeRg: false });
+    const primaryRead = readEvidence[0];
+    const recoveryPaths = primaryRead && !candidates.some((candidate) => candidate.path === primaryRead)
+      ? [primaryRead]
+      : [];
+    for (const evidencePath of recoveryPaths) {
+      if (candidates.some((candidate) => candidate.path === evidencePath)) continue;
+      const recovered = await recoverCandidate(
+        `/codebase/${evidencePath}`,
+        null,
+        "implementation_candidate_recovered",
+      );
+      if (recovered && addCandidate(recovered, { prepend: true })) {
+        recoveredCandidates += 1;
+        break;
+      }
+    }
+    if (recoveredCandidates === 0 && implementationCandidates.length === 0) {
+      try {
+        const imported = await executor.recoverImportedImplementation(
+          candidates.filter((candidate) => isTestPath(candidate.path)).map((candidate) => candidate.path),
+        );
+        if (imported && addCandidate(imported, { prepend: true })) {
+          recoveredCandidates += 1;
+          budget.markTruncated("implementation_candidate_recovered");
+        }
+      } catch (error) {
+        if (budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw networkError();
+      }
+    }
+    if (recoveredCandidates === 0 && implementationCandidates.length === 0 && !primaryRead) {
+      const rgPath = executor.implementationEvidencePaths({ includeRg: true })[0];
+      if (rgPath) {
+        const recovered = await recoverCandidate(
+          `/codebase/${rgPath}`,
+          null,
+          "implementation_candidate_recovered",
+        );
+        if (recovered && addCandidate(recovered, { prepend: true })) recoveredCandidates += 1;
+      }
+    }
+  }
   const coverage = searchCoverage(budget, repoMap, executor);
   return answerResult({
     candidates,
     projection: {
       remote_candidates: remoteCandidates,
       accepted_candidates: candidates.length,
+      recovered_candidates: recoveredCandidates,
       rejected_candidates: rejectedCandidates,
       unprocessed_candidates: unprocessedCandidates,
       rejection_reasons: [...rejectionReasons].sort(),
@@ -823,7 +1047,7 @@ function searchCoverage(budget, repoMap, executor) {
   if (repoMap.status === "truncated" && repoMap.reason) reasons.add(repoMap.reason);
   if (executorCoverage.failed) reasons.add("local_tool_failure");
   return {
-    truncated: repoMap.status === "truncated" || executorCoverage.truncated,
+    truncated: snapshot.reasons.length > 0 || repoMap.status === "truncated" || executorCoverage.truncated,
     visited: snapshot.visited,
     continuation: executorCoverage.continuation || repoMap.continuation || null,
     reasons: [...reasons].sort(),
@@ -841,6 +1065,7 @@ function searchCoverage(budget, repoMap, executor) {
  *   signal?: AbortSignal,
  *   resourceLimits?: Partial<typeof import("./path-guard.mjs").RESOURCE_LIMITS>,
  *   now?: () => number,
+ *   waitImpl?: (signal: AbortSignal, delayMs: number) => Promise<void>,
  *   onProtocolEvent?: (event: { turn: number, final_turn: boolean, event?: string, tool_name?: string, command_index?: string, command_type?: string, status?: string, reason?: string | null, code?: string | null, protocol_reason?: string }) => void,
  * }} options
  */
@@ -854,6 +1079,7 @@ export async function search({
   signal,
   resourceLimits,
   now,
+  waitImpl = waitForStreamRetry,
   onProtocolEvent,
 }) {
   if (typeof query !== "string" || query.trim().length === 0) {
@@ -871,7 +1097,7 @@ export async function search({
   const budget = new ResourceBudget({ timeoutMs, signal, limits: resourceLimits, now });
   try {
     const boundedResults = Math.max(1, Math.min(50, Number(maxResults) || 10));
-    const jwt = await fetchJwt(apiKey, fetchImpl, budget.remainingMs(), budget.signal);
+    let jwt = await fetchJwt(apiKey, fetchImpl, budget.remainingMs(), budget.signal);
     notifyProtocol(onProtocolEvent, { event: "rate_limit_preflight", status: "started" });
     try {
       await checkRateLimit(apiKey, jwt, fetchImpl, budget.remainingMs(), budget.signal);
@@ -908,55 +1134,160 @@ export async function search({
       },
     ];
     const definitions = toolDefinitions();
-    let executableToolFormatRetries = 0;
-    let answerOnlyToolFormatRetries = 0;
     let answerFormatRetries = 0;
-    const requestWithRetry = (request, turn, finalTurn) => requestToolCall(
-      request,
-      fetchImpl,
-      budget,
-      (event) => notifyProtocol(onProtocolEvent, {
-        ...event,
-        turn,
-        final_turn: finalTurn,
-      }),
-    );
+    let sessionRefreshes = 0;
+    const requestWithRetry = async (requestDefinitions, turn, finalTurn) => {
+      const performRequest = () => {
+        const request = buildRequest(apiKey, jwt, messages, requestDefinitions);
+        if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
+        return requestToolCall(
+          request,
+          fetchImpl,
+          budget,
+          (event) => notifyProtocol(onProtocolEvent, {
+            ...event,
+            turn,
+            final_turn: finalTurn,
+          }),
+          waitImpl,
+        );
+      };
+      while (true) {
+        try {
+          return await performRequest();
+        } catch (error) {
+          if (!isRefreshableCapacityFailure(error) || sessionRefreshes >= MAX_SESSION_REFRESHES) {
+            throw error;
+          }
+          sessionRefreshes += 1;
+          notifyProtocol(onProtocolEvent, {
+            event: "session_refresh",
+            status: "started",
+            attempt: sessionRefreshes,
+            turn,
+            final_turn: finalTurn,
+          });
+          try {
+            const remaining = budget.remainingMs();
+            const delay = Math.min(SESSION_REFRESH_BACKOFF_MS, Math.max(0, remaining - 1));
+            if (delay <= 0) throw error;
+            await waitImpl(budget.signal, delay);
+            jwt = await fetchJwt(apiKey, fetchImpl, budget.remainingMs(), budget.signal);
+            await checkRateLimit(apiKey, jwt, fetchImpl, budget.remainingMs(), budget.signal);
+          } catch (refreshError) {
+            notifyProtocol(onProtocolEvent, {
+              event: "session_refresh",
+              status: "failed",
+              attempt: sessionRefreshes,
+              turn,
+              final_turn: finalTurn,
+              code: typeof refreshError?.code === "string"
+                ? refreshError.code
+                : "FC_REMOTE_UNAVAILABLE",
+              protocol_reason: typeof refreshError?.protocolReason === "string"
+                ? refreshError.protocolReason
+                : undefined,
+            });
+            throw refreshError;
+          }
+          notifyProtocol(onProtocolEvent, {
+            event: "session_refresh",
+            status: "complete",
+            attempt: sessionRefreshes,
+            turn,
+            final_turn: finalTurn,
+          });
+        }
+      }
+    };
+    const requestWithFormatCorrection = async (requestDefinitions, turn, finalTurn) => {
+      let formatRetries = 0;
+      while (true) {
+        try {
+          const call = await requestWithRetry(requestDefinitions, turn, finalTurn);
+          if (formatRetries > 0) {
+            notifyProtocol(onProtocolEvent, {
+              event: "tool_format_correction",
+              turn,
+              final_turn: finalTurn,
+              tool_name: call.name,
+            });
+          }
+          return call;
+        } catch (error) {
+          if (!error?.retryableToolFormat || formatRetries >= MAX_TOOL_FORMAT_RETRIES) {
+            notifyProtocol(onProtocolEvent, {
+              event: formatRetries > 0 ? "tool_format_correction" : undefined,
+              turn,
+              final_turn: finalTurn,
+              code: typeof error?.code === "string" ? error.code : "FC_REMOTE_UNAVAILABLE",
+              protocol_reason: typeof error?.protocolReason === "string"
+                ? error.protocolReason
+                : undefined,
+            });
+            throw error;
+          }
+          formatRetries += 1;
+          messages.push({ role: 1, content: toolFormatCorrectionPrompt(finalTurn) });
+        }
+      }
+    };
 
     for (let turn = 0; turn < MAX_TURNS; turn += 1) {
       const finalTurn = turn === MAX_TURNS - 1;
-      const request = buildRequest(
-        apiKey,
-        jwt,
-        messages,
-        finalTurn ? toolDefinitions({ allowRestrictedExec: false }) : definitions,
-      );
-      if (request.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
-      let toolCall;
-      try {
-        toolCall = await requestWithRetry(request, turn + 1, finalTurn);
-      } catch (error) {
-        const formatRetries = finalTurn
-          ? answerOnlyToolFormatRetries
-          : executableToolFormatRetries;
-        if (error?.retryableToolFormat && formatRetries < MAX_TOOL_FORMAT_RETRIES) {
-          if (finalTurn) answerOnlyToolFormatRetries += 1;
-          else executableToolFormatRetries += 1;
-          messages.push({ role: 1, content: toolFormatCorrectionPrompt(finalTurn) });
-          const correctionRequest = buildRequest(
-            apiKey,
-            jwt,
-            messages,
-            finalTurn ? toolDefinitions({ allowRestrictedExec: false }) : definitions,
+      const requestDefinitions = finalTurn
+        ? toolDefinitions({ allowRestrictedExec: false })
+        : definitions;
+      const toolCall = await requestWithFormatCorrection(requestDefinitions, turn + 1, finalTurn);
+      notifyProtocol(onProtocolEvent, {
+        turn: turn + 1,
+        final_turn: finalTurn,
+        tool_name: toolCall.name,
+      });
+      if (toolCall.recovery) {
+        notifyProtocol(onProtocolEvent, {
+          event: "tool_call_recovered",
+          turn: turn + 1,
+          final_turn: finalTurn,
+          tool_name: toolCall.name,
+          recovery: toolCall.recovery,
+        });
+      }
+
+      if (toolCall.name === "answer") {
+        let answerResult;
+        try {
+          answerResult = await parseAnswer(
+            toolCall.args.answer,
+            guard,
+            boundedResults,
+            query,
+            budget,
+            repoMap,
+            executor,
           );
-          if (correctionRequest.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
+        } catch (error) {
+          if (
+            error?.protocolReason !== "answer_missing_explicit_no_results"
+            || answerFormatRetries >= MAX_ANSWER_FORMAT_RETRIES
+          ) throw error;
+          answerFormatRetries += 1;
+          messages.push({ role: 1, content: answerShapeCorrectionPrompt(boundedResults) });
+          let correctionCall;
           try {
-            toolCall = await requestWithRetry(correctionRequest, turn + 1, finalTurn);
+            correctionCall = await requestWithFormatCorrection(
+              toolDefinitions({ allowRestrictedExec: false }),
+              turn + 1,
+              true,
+            );
           } catch (correctionError) {
             notifyProtocol(onProtocolEvent, {
-              event: "tool_format_correction",
+              event: "answer_correction",
               turn: turn + 1,
-              final_turn: finalTurn,
-              code: typeof correctionError?.code === "string" ? correctionError.code : "FC_REMOTE_UNAVAILABLE",
+              final_turn: true,
+              code: typeof correctionError?.code === "string"
+                ? correctionError.code
+                : "FC_REMOTE_UNAVAILABLE",
               protocol_reason: typeof correctionError?.protocolReason === "string"
                 ? correctionError.protocolReason
                 : undefined,
@@ -964,37 +1295,24 @@ export async function search({
             throw correctionError;
           }
           notifyProtocol(onProtocolEvent, {
-            event: "tool_format_correction",
+            event: "answer_correction",
             turn: turn + 1,
-            final_turn: finalTurn,
-            tool_name: toolCall.name,
+            final_turn: true,
+            tool_name: correctionCall.name,
           });
-        } else {
-          notifyProtocol(onProtocolEvent, {
-            turn: turn + 1,
-            final_turn: finalTurn,
-            code: typeof error?.code === "string" ? error.code : "FC_REMOTE_UNAVAILABLE",
-            protocol_reason: typeof error?.protocolReason === "string" ? error.protocolReason : undefined,
-          });
-          throw error;
+          if (correctionCall.name !== "answer") throw protocolError("answer_correction_non_answer");
+          const correctedResult = await parseAnswer(
+            correctionCall.args.answer,
+            guard,
+            boundedResults,
+            query,
+            budget,
+            repoMap,
+            executor,
+          );
+          if (correctedResult.projection.remote_candidates === 0) throw error;
+          return correctedResult;
         }
-      }
-      notifyProtocol(onProtocolEvent, {
-        turn: turn + 1,
-        final_turn: finalTurn,
-        tool_name: toolCall.name,
-      });
-
-      if (toolCall.name === "answer") {
-        const answerResult = await parseAnswer(
-          toolCall.args.answer,
-          guard,
-          boundedResults,
-          query,
-          budget,
-          repoMap,
-          executor,
-        );
         if (
           !canRetryAnswerFormat(answerResult)
           || answerFormatRetries >= MAX_ANSWER_FORMAT_RETRIES
@@ -1004,16 +1322,13 @@ export async function search({
 
         answerFormatRetries += 1;
         messages.push({ role: 1, content: answerCorrectionPrompt(answerResult.projection, boundedResults) });
-        const correctionRequest = buildRequest(
-          apiKey,
-          jwt,
-          messages,
-          toolDefinitions({ allowRestrictedExec: false }),
-        );
-        if (correctionRequest.length > MAX_REQUEST_BYTES) throw new FastContextError("FC_OUTPUT_LIMIT");
         let correctionCall;
         try {
-          correctionCall = await requestWithRetry(correctionRequest, turn + 1, true);
+          correctionCall = await requestWithFormatCorrection(
+            toolDefinitions({ allowRestrictedExec: false }),
+            turn + 1,
+            true,
+          );
         } catch (error) {
           notifyProtocol(onProtocolEvent, {
             event: "answer_correction",
@@ -1101,6 +1416,7 @@ export const CORE_LIMITS = Object.freeze({
   MAX_RESPONSE_BYTES,
   MAX_TOOL_FORMAT_RETRIES,
   MAX_ANSWER_FORMAT_RETRIES,
+  MAX_SESSION_REFRESHES,
   MAX_STREAM_RETRIES,
   MAX_TOOL_ARGS_BYTES,
   MAX_TURNS,

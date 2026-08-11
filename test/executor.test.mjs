@@ -51,9 +51,89 @@ test("executor uses approved files, fixed rg JSON argv, and minimal environment"
     ]);
     assert.deepEqual(call.options.env, { LANG: "C", LC_ALL: "C", RIPGREP_CONFIG_PATH: "" });
     assert.ok(call.args.every((arg) => !arg.includes(".env")));
+    assert.deepEqual(
+      await executor.recoverCandidateRange("/codebase/src/ok.mjs", { start_line: 8, end_line: 10 }),
+      {
+        relativePath: "src/ok.mjs",
+        startLine: 1,
+        endLine: 1,
+        lineCount: 1,
+      },
+    );
     assert.equal((await executor.tree("/codebase", 1)).output.includes(".env"), false);
     assert.equal((await executor.ls("/codebase", false, true)).output.includes(".env"), false);
     assert.match((await executor.glob("*.mjs", "/codebase/src", "file")).output, /ok\.mjs/);
+  } finally {
+    budget.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("candidate recovery does not reinterpret rg evidence after a version change", async () => {
+  const budget = new ResourceBudget();
+  let reads = 0;
+  const guard = {
+    normalizeVirtualPath() { return "src/changing.mjs"; },
+    async validateCandidateRange() {
+      budget.markTruncated("candidate_changed");
+      return null;
+    },
+    async readText() {
+      reads += 1;
+      return { read_range: { start_line: 1, end_line: 1 } };
+    },
+  };
+  try {
+    const executor = new ToolExecutor(guard, { budget });
+    executor.readEvidence.set("src/changing.mjs", [{ start_line: 1, end_line: 1 }]);
+    executor.rgEvidence.set("src/changing.mjs", [1]);
+    assert.equal(await executor.recoverCandidateRange("/codebase/src/changing.mjs"), null);
+    assert.equal(reads, 0);
+    assert.deepEqual(budget.snapshot().reasons, ["candidate_changed"]);
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("implementation evidence ranks guarded reads before the strongest rg path", () => {
+  const budget = new ResourceBudget();
+  try {
+    const executor = new ToolExecutor({}, { budget });
+    executor.readEvidence.set("src/primary.mjs", [{ start_line: 1, end_line: 10 }]);
+    executor.readEvidence.set("test/primary.test.mjs", [{ start_line: 1, end_line: 10 }]);
+    executor.rgEvidence.set("src/weak.mjs", [4]);
+    executor.rgEvidence.set("src/strong.mjs", [2, 8, 12]);
+    assert.deepEqual(executor.implementationEvidencePaths({ includeRg: false }), [
+      "src/primary.mjs",
+    ]);
+    assert.deepEqual(executor.implementationEvidencePaths(), [
+      "src/primary.mjs",
+      "src/strong.mjs",
+      "src/weak.mjs",
+    ]);
+  } finally {
+    budget.dispose();
+  }
+});
+
+test("test import recovery resolves one guarded TypeScript implementation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "fast-context-import-recovery-"));
+  mkdirSync(join(root, "src"));
+  mkdirSync(join(root, "test"));
+  writeFileSync(join(root, "src", "implementation.ts"), "export const implementation = true;\n");
+  writeFileSync(
+    join(root, "test", "implementation.test.ts"),
+    'import { implementation } from "../src/implementation.js";\n',
+  );
+  const budget = new ResourceBudget();
+  try {
+    const executor = new ToolExecutor(new PathGuard(root), { budget });
+    assert.deepEqual(await executor.recoverImportedImplementation(["test/implementation.test.ts"]), {
+      relativePath: "src/implementation.ts",
+      startLine: 1,
+      endLine: 1,
+      lineCount: 1,
+    });
   } finally {
     budget.dispose();
     rmSync(root, { recursive: true, force: true });

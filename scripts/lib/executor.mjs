@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { isAbsolute, posix } from "node:path";
 import { RESOURCE_LIMITS, ResourceBudget } from "./path-guard.mjs";
 import { FastContextError } from "./public-error.mjs";
 
@@ -8,7 +8,55 @@ const MAX_COMMANDS = 4;
 const MAX_RG_PATTERN_LENGTH = 240;
 const MAX_RG_OUTPUT_BYTES = RESOURCE_LIMITS.MAX_OUTPUT_BYTES;
 const MAX_RG_FILES_PER_BATCH = 128;
+const MAX_IMPORT_RECOVERY_FILES = 4;
+const MAX_IMPORT_SPECIFIERS = 12;
 const PROCESS_KILL_GRACE_MS = 100;
+
+function relativeImportCandidates(testPath, output) {
+  const source = String(output || "")
+    .split("\n")
+    .map((line) => line.replace(/^\d+:/, ""))
+    .join("\n");
+  const specifiers = [];
+  const expression = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s*)["'](\.{1,2}\/[^"'?#\r\n]+)["']/g;
+  let match;
+  while ((match = expression.exec(source)) !== null && specifiers.length < MAX_IMPORT_SPECIFIERS) {
+    if (!specifiers.includes(match[1])) specifiers.push(match[1]);
+  }
+  const candidates = [];
+  const add = (value) => {
+    const normalized = posix.normalize(value);
+    if (
+      normalized === "."
+      || normalized === ".."
+      || normalized.startsWith("../")
+      || normalized.startsWith("/")
+      || candidates.includes(normalized)
+    ) return;
+    candidates.push(normalized);
+  };
+  for (const specifier of specifiers) {
+    const joined = posix.join(posix.dirname(testPath), specifier);
+    const extension = posix.extname(joined).toLowerCase();
+    add(joined);
+    if (extension === ".js") {
+      add(`${joined.slice(0, -3)}.ts`);
+      add(`${joined.slice(0, -3)}.tsx`);
+    } else if (extension === ".jsx") {
+      add(`${joined.slice(0, -4)}.tsx`);
+      add(`${joined.slice(0, -4)}.ts`);
+    } else if (extension === ".mjs") {
+      add(`${joined.slice(0, -4)}.mts`);
+    } else if (extension === ".cjs") {
+      add(`${joined.slice(0, -4)}.cts`);
+    } else if (!extension) {
+      for (const suffix of [".ts", ".tsx", ".js", ".mts", ".mjs", "/index.ts", "/index.js"]) {
+        add(`${joined}${suffix}`);
+      }
+    }
+  }
+  return candidates;
+}
 
 function defaultRgBinary() {
   const candidates = process.platform === "win32"
@@ -146,6 +194,7 @@ export function runBoundedProcess(binary, args, options = {}) {
 function parseRgOutput(output, files, budget) {
   const byAbsolutePath = new Map(files.map((file) => [file.absolutePath, file]));
   const rows = [];
+  const matches = [];
   let truncated = false;
   for (const line of String(output || "").split("\n")) {
     if (!line) continue;
@@ -169,8 +218,9 @@ function parseRgOutput(output, files, budget) {
       break;
     }
     rows.push(`/codebase/${file.relativePath}:${lineNumber}:${lineText.replace(/[\r\n]+$/, "").slice(0, 240)}`);
+    matches.push({ relativePath: file.relativePath, lineNumber });
   }
-  return { rows, truncated };
+  return { rows, matches, truncated };
 }
 
 function commandResult(status, output, budget, continuation = null, reason = null, code = null) {
@@ -204,6 +254,8 @@ export class ToolExecutor {
     this.hadTruncation = false;
     this.hadFailure = false;
     this.continuations = [];
+    this.readEvidence = new Map();
+    this.rgEvidence = new Map();
   }
 
   remember(result) {
@@ -267,6 +319,11 @@ export class ToolExecutor {
       if (result.status !== 0) throw toolError();
       const parsed = parseRgOutput(result.stdout, files, this.budget);
       rows.push(...parsed.rows);
+      for (const match of parsed.matches) {
+        const lineNumbers = this.rgEvidence.get(match.relativePath) || [];
+        if (!lineNumbers.includes(match.lineNumber)) lineNumbers.push(match.lineNumber);
+        this.rgEvidence.set(match.relativePath, lineNumbers);
+      }
       if (parsed.truncated) {
         truncated = true;
         break;
@@ -285,7 +342,106 @@ export class ToolExecutor {
   }
 
   async readfile(file, startLine = 1, endLine = 80) {
-    return this.remember(await this.guard.readText(file, startLine, endLine, this.budget));
+    const result = this.remember(await this.guard.readText(file, startLine, endLine, this.budget));
+    if (result.read_range) {
+      const relativePath = this.guard.normalizeVirtualPath(file);
+      const ranges = this.readEvidence.get(relativePath) || [];
+      if (!ranges.some((range) => range.start_line === result.read_range.start_line
+        && range.end_line === result.read_range.end_line)) {
+        ranges.push(result.read_range);
+      }
+      this.readEvidence.set(relativePath, ranges);
+    }
+    return result;
+  }
+
+  async recoverCandidateRange(value, preferredRange = null) {
+    const relativePath = this.guard.normalizeVirtualPath(value);
+    const priorReads = this.readEvidence.get(relativePath) || [];
+    const orderedReads = preferredRange
+      ? [...priorReads].sort((left, right) => {
+        const leftOverlap = left.start_line <= preferredRange.end_line
+          && left.end_line >= preferredRange.start_line;
+        const rightOverlap = right.start_line <= preferredRange.end_line
+          && right.end_line >= preferredRange.start_line;
+        return Number(rightOverlap) - Number(leftOverlap);
+      })
+      : priorReads;
+    for (const range of orderedReads) {
+      const validated = await this.guard.validateCandidateRange(
+        value,
+        range.start_line,
+        range.end_line,
+        this.budget,
+      );
+      if (validated) return validated;
+    }
+    if (this.budget.snapshot().reasons.includes("candidate_changed")) return null;
+
+    const anchors = this.rgEvidence.get(relativePath) || [];
+    if (anchors.length === 0) return null;
+    const anchor = preferredRange
+      ? [...anchors].sort((left, right) => (
+        Math.abs(left - preferredRange.start_line) - Math.abs(right - preferredRange.start_line)
+      ))[0]
+      : anchors[0];
+    const startLine = Math.max(1, anchor - 20);
+    let read;
+    try {
+      read = await this.guard.readText(value, startLine, startLine + 79, this.budget);
+    } catch (error) {
+      if (error?.code === "FC_OUTPUT_LIMIT") return null;
+      throw error;
+    }
+    if (!read.read_range) return null;
+    const ranges = this.readEvidence.get(relativePath) || [];
+    ranges.push(read.read_range);
+    this.readEvidence.set(relativePath, ranges);
+    return this.guard.validateCandidateRange(
+      value,
+      read.read_range.start_line,
+      read.read_range.end_line,
+      this.budget,
+    );
+  }
+
+  implementationEvidencePaths({ includeRg = true } = {}) {
+    const isImplementation = (relativePath) => (
+      !/(^|\/)(?:__tests__|test|tests|spec)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(relativePath)
+    );
+    const readPaths = [...this.readEvidence.keys()].filter(isImplementation);
+    if (!includeRg) return readPaths;
+    const seen = new Set(readPaths);
+    const rgPaths = [...this.rgEvidence.entries()]
+      .filter(([relativePath]) => isImplementation(relativePath) && !seen.has(relativePath))
+      .sort((left, right) => right[1].length - left[1].length)
+      .map(([relativePath]) => relativePath);
+    return [...readPaths, ...rgPaths];
+  }
+
+  async recoverImportedImplementation(testPaths) {
+    for (const testPath of testPaths.slice(0, MAX_IMPORT_RECOVERY_FILES)) {
+      let testRead;
+      try {
+        testRead = await this.readfile(`/codebase/${testPath}`, 1, 80);
+      } catch (error) {
+        if (this.budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw error;
+        continue;
+      }
+      for (const relativePath of relativeImportCandidates(testPath, testRead.output)) {
+        if (/(^|\/)(?:__tests__|test|tests|spec)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(relativePath)) continue;
+        try {
+          const importedRead = await this.readfile(`/codebase/${relativePath}`, 1, 80);
+          if (!importedRead.read_range) continue;
+          const validated = await this.recoverCandidateRange(`/codebase/${relativePath}`);
+          if (validated) return validated;
+          if (this.budget.snapshot().reasons.includes("candidate_changed")) return null;
+        } catch (error) {
+          if (this.budget.signal.aborted || error?.code === "FC_REMOTE_UNAVAILABLE") throw error;
+        }
+      }
+    }
+    return null;
   }
 
   async tree(value, levels = 2) {
@@ -382,5 +538,7 @@ export const EXECUTOR_LIMITS = Object.freeze({
   MAX_RG_PATTERN_LENGTH,
   MAX_RG_OUTPUT_BYTES,
   MAX_RG_FILES_PER_BATCH,
+  MAX_IMPORT_RECOVERY_FILES,
+  MAX_IMPORT_SPECIFIERS,
   PROCESS_KILL_GRACE_MS,
 });

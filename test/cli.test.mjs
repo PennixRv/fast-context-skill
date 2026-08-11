@@ -210,6 +210,7 @@ test("CLI preserves candidate projection incompleteness without remote details",
     projection: {
       remote_candidates: 1,
       accepted_candidates: 0,
+      recovered_candidates: 0,
       rejected_candidates: 1,
       unprocessed_candidates: 0,
       rejection_reasons: ["remote_candidate_missing_range"],

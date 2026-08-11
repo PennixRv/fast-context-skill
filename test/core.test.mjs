@@ -197,8 +197,9 @@ test("search preflights the upstream model route and locally revalidates candida
     assert.match(prompt, /readfile returns numbered rows as N:source and a locally generated read_range/);
     assert.match(prompt, /Never send shell text, cwd, paths outside \/codebase/);
     assert.match(prompt, /Use MAP to orient from the repository map, ANCHOR with narrow rg searches/);
-    assert.match(prompt, /verified implementation is primary/);
-    assert.match(prompt, /never return a test as the only candidate/);
+    assert.match(prompt, /Read the implementation before its test/);
+    assert.match(prompt, /Never return a test as the only candidate/);
+    assert.match(prompt, /next restricted_exec call must reserve at least one command for readfile/);
     assert.match(prompt, /one to four command1 through command4 properties/);
     assert.match(prompt, /Think step-by-step before each tool request/);
     assert.match(prompt, /client discards all text outside it/);
@@ -335,6 +336,234 @@ test("one malformed remote tool envelope retries within the shared request budge
   }
 });
 
+test("separate executable turns each retain one bounded format correction", async () => {
+  const root = fixture();
+  const requests = [];
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        requests.push(decodeRequestFrame(options.body));
+        streamCalls += 1;
+        const frame = streamCalls === 1 || streamCalls === 3
+          ? protoString("[TOOL_CALLS] restricted_exec [ARGS] not-json")
+          : streamCalls === 2
+            ? restrictedExecFrame({ command1: { type: "tree", path: "/codebase", levels: 1 } })
+            : streamCalls === 4
+              ? restrictedExecFrame({
+                command1: {
+                  type: "readfile",
+                  file: "/codebase/src/candidate.mjs",
+                  start_line: 1,
+                  end_line: 1,
+                },
+              })
+              : answerFrame();
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 5);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    for (const index of [1, 3]) {
+      const strings = extractStrings(requests[index]);
+      assert.ok(strings.some((value) => value.includes("only tool-format correction attempt for this request")));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a second malformed envelope in one turn still fails closed", async () => {
+  const root = fixture();
+  let streamCalls = 0;
+  try {
+    await assert.rejects(
+      search({
+        query: "find candidate",
+        guard: new PathGuard(root),
+        apiKey: syntheticKey,
+        fetchImpl: async (url) => {
+          if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+            return response(protoString("eyJ.synthetic.jwt"));
+          }
+          streamCalls += 1;
+          return response(connectResponse([
+            protoString("[TOOL_CALLS] restricted_exec [ARGS] not-json"),
+          ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+        },
+      }),
+      (error) => error?.code === "FC_PROTOCOL_INVALID"
+        && error?.protocolReason === "tool_call_format_invalid",
+    );
+    assert.equal(streamCalls, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("common malformed restricted_exec JSON is repaired inside the bounded envelope", async () => {
+  const root = fixture();
+  let streamCalls = 0;
+  const protocolEvents = [];
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? protoString(
+            '[TOOL_CALLS]restricted_exec[ARGS]{"command1":{"type":"readfile","file":"/codebase/src/candidate.mjs","start_line":1,"end_line":1},command2":{"type":"tree","path":"/codebase","levels":1},}',
+          )
+          : answerFrame();
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    assert.ok(protocolEvents.some((event) => event.event === "tool_call_recovered"
+      && event.recovery === "json_repaired"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("complete restricted_exec commands are salvaged from a truncated tool object", async () => {
+  const root = fixture();
+  let streamCalls = 0;
+  const protocolEvents = [];
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? protoString(
+            '[TOOL_CALLS]restricted_exec[ARGS]{"command1":{"type":"readfile","file":"/codebase/src/candidate.mjs","start_line":1,"end_line":1},"command2":{"type":"rg","pattern":"unterminated"',
+          )
+          : answerFrame();
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    assert.ok(protocolEvents.some((event) => event.event === "tool_call_recovered"
+      && event.recovery === "commands_salvaged"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("nested command-like text is not salvaged as a top-level restricted command", async () => {
+  const root = fixture();
+  let streamCalls = 0;
+  const protocolEvents = [];
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? protoString(
+            '[TOOL_CALLS]restricted_exec[ARGS]{"wrapper":{"command1":{"type":"readfile","file":"/codebase/src/candidate.mjs","start_line":1,"end_line":1}}',
+          )
+          : answerFrame();
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    assert.ok(protocolEvents.some((event) => event.event === "tool_format_correction"));
+    assert.equal(protocolEvents.some((event) => event.event === "local_tool"), false);
+    assert.equal(protocolEvents.some((event) => event.event === "tool_call_recovered"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a complete top-level answer string survives a truncated outer JSON object", async () => {
+  const root = fixture();
+  const protocolEvents = [];
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        return response(connectResponse([protoString(
+          '[TOOL_CALLS]answer[ARGS]{"answer":"<ANSWER><file path=\\"/codebase/src/candidate.mjs\\"><range>1-1</range></file></ANSWER>"',
+        )]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    assert.ok(protocolEvents.some((event) => event.event === "tool_call_recovered"
+      && event.recovery === "answer_salvaged"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a repaired unquoted answer key can still salvage one complete truncated string", async () => {
+  const root = fixture();
+  const protocolEvents = [];
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        return response(connectResponse([protoString(
+          '[TOOL_CALLS]answer[ARGS]{answer:"<ANSWER><file path=\\"/codebase/src/candidate.mjs\\"><range>1-1</range></file></ANSWER>"',
+        )]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    assert.ok(protocolEvents.some((event) => event.event === "tool_call_recovered"
+      && event.recovery === "answer_salvaged"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("trailing tool text receives one bounded correction and is never replayed", async () => {
   const root = fixture();
   let streamCalls = 0;
@@ -363,7 +592,7 @@ test("trailing tool text receives one bounded correction and is never replayed",
   }
 });
 
-test("answer-only format correction remains available after an executable-stage correction", async () => {
+test("answer-only format correction remains available after an executable-turn correction", async () => {
   const root = fixture();
   const requests = [];
   let streamCalls = 0;
@@ -659,6 +888,7 @@ test("a transient remote capacity rejection retries the same bounded stream requ
       query: "find candidate",
       guard: new PathGuard(root),
       apiKey: syntheticKey,
+      waitImpl: async () => {},
       onProtocolEvent(event) { protocolEvents.push(event); },
       fetchImpl: async (url) => {
         if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
@@ -694,6 +924,92 @@ test("a transient remote capacity rejection retries the same bounded stream requ
         final_turn: false,
       },
       { turn: 1, final_turn: false, tool_name: "answer" },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("persistent stream capacity rejection refreshes the bounded session once", async () => {
+  const root = fixture();
+  const protocolEvents = [];
+  let jwtCalls = 0;
+  let preflightCalls = 0;
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      waitImpl: async () => {},
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt")) {
+          jwtCalls += 1;
+          return response(protoString(`eyJ.synthetic.jwt.${jwtCalls}`));
+        }
+        if (url.includes("CheckUserMessageRateLimit")) {
+          preflightCalls += 1;
+          return response(protoString("available"));
+        }
+        streamCalls += 1;
+        return response(connectResponse(
+          streamCalls <= 3 ? [] : [answerFrame()],
+          streamCalls <= 3
+            ? { end: { error: { code: "resource_exhausted", message: "REMOTE_BODY_SENTINEL" } } }
+            : undefined,
+        ), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(jwtCalls, 2);
+    assert.equal(preflightCalls, 2);
+    assert.equal(streamCalls, 4);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/candidate.mjs"]);
+    assert.deepEqual(protocolEvents.filter((event) => event.event === "session_refresh"), [
+      { event: "session_refresh", status: "started", attempt: 1, turn: 1, final_turn: false },
+      { event: "session_refresh", status: "complete", attempt: 1, turn: 1, final_turn: false },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("persistent stream capacity rejection stops after two bounded session refreshes", async () => {
+  const root = fixture();
+  const protocolEvents = [];
+  let jwtCalls = 0;
+  let preflightCalls = 0;
+  let streamCalls = 0;
+  try {
+    await assert.rejects(search({
+      query: "find candidate",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      waitImpl: async () => {},
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt")) {
+          jwtCalls += 1;
+          return response(protoString(`eyJ.synthetic.jwt.${jwtCalls}`));
+        }
+        if (url.includes("CheckUserMessageRateLimit")) {
+          preflightCalls += 1;
+          return response(protoString("available"));
+        }
+        streamCalls += 1;
+        return response(connectResponse([], {
+          end: { error: { code: "resource_exhausted", message: "REMOTE_BODY_SENTINEL" } },
+        }), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    }), (error) => error?.code === "FC_REMOTE_UNAVAILABLE");
+    assert.equal(jwtCalls, 3);
+    assert.equal(preflightCalls, 3);
+    assert.equal(streamCalls, 9);
+    assert.deepEqual(protocolEvents.filter((event) => event.event === "session_refresh"), [
+      { event: "session_refresh", status: "started", attempt: 1, turn: 1, final_turn: false },
+      { event: "session_refresh", status: "complete", attempt: 1, turn: 1, final_turn: false },
+      { event: "session_refresh", status: "started", attempt: 2, turn: 1, final_turn: false },
+      { event: "session_refresh", status: "complete", attempt: 2, turn: 1, final_turn: false },
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -760,6 +1076,7 @@ test("invalid remote ranges are visible as incomplete while valid final lines re
     assert.deepEqual(result.projection, {
       remote_candidates: 6,
       accepted_candidates: 2,
+      recovered_candidates: 0,
       rejected_candidates: 4,
       unprocessed_candidates: 0,
       rejection_reasons: ["remote_candidate_range_rejected"],
@@ -1077,6 +1394,7 @@ test("the controlled ledger fixture projects a locally valid candidate", async (
     assert.deepEqual(result.projection, {
       remote_candidates: 1,
       accepted_candidates: 1,
+      recovered_candidates: 0,
       rejected_candidates: 0,
       unprocessed_candidates: 0,
       rejection_reasons: [],
@@ -1117,6 +1435,7 @@ test("a single file may carry multiple locally validated candidate ranges", asyn
     assert.deepEqual(result.projection, {
       remote_candidates: 2,
       accepted_candidates: 2,
+      recovered_candidates: 0,
       rejected_candidates: 0,
       unprocessed_candidates: 0,
       rejection_reasons: [],
@@ -1145,6 +1464,7 @@ test("an answer candidate without a range is not reported as complete no-results
     assert.deepEqual(result.projection, {
       remote_candidates: 1,
       accepted_candidates: 0,
+      recovered_candidates: 0,
       rejected_candidates: 1,
       unprocessed_candidates: 0,
       rejection_reasons: ["remote_candidate_missing_range"],
@@ -1188,6 +1508,44 @@ test("one answer-format correction uses answer only and returns a locally valid 
     assert.ok(correctionMessages.some((value) => value.includes("remote_candidate_missing_range")));
     assert.ok(correctionMessages.some((value) => value.includes("copied from a prior readfile read_range")));
     assert.equal(correctionMessages.some((value) => value.includes("src/ledger/repair.ts")), false);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("an answer correction request retains one bounded envelope correction", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  const requests = [];
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url, options) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        requests.push(decodeRequestFrame(options.body));
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? answerFrame('<ANSWER><file path="/codebase/src/ledger/repair.ts"></file></ANSWER>')
+          : streamCalls === 2
+            ? protoString("[TOOL_CALLS] answer [ARGS] not-json")
+            : answerFrame('<ANSWER><file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file></ANSWER>');
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 3);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/ledger/repair.ts"]);
+    const formatCorrection = extractStrings(requests[2]);
+    assert.ok(formatCorrection.some((value) => value.includes("only tool-format correction attempt for this request")));
+    const definitions = formatCorrection
+      .find((value) => value.includes('"type":"function"') && value.includes('"name":"answer"'));
+    assert.ok(definitions);
+    assert.equal(definitions.includes("restricted_exec"), false);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -1294,6 +1652,253 @@ test("all out-of-range candidates remain visibly incomplete", async () => {
   }
 });
 
+test("an invalid remote range is recovered from an exact prior local read", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? restrictedExecFrame({
+            command1: {
+              type: "readfile",
+              file: "/codebase/src/ledger/repair.ts",
+              start_line: 1,
+              end_line: 80,
+            },
+          })
+          : answerFrame(
+            '<file path="/codebase/src/ledger/repair.ts"><range>1-25</range></file>',
+          );
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "truncated");
+    assert.deepEqual(result.candidates, [{
+      path: "src/ledger/repair.ts",
+      start_line: 1,
+      end_line: 24,
+      reason: "local_range_validated",
+    }]);
+    assert.deepEqual(result.projection, {
+      remote_candidates: 1,
+      accepted_candidates: 1,
+      recovered_candidates: 0,
+      rejected_candidates: 0,
+      unprocessed_candidates: 0,
+      rejection_reasons: [],
+    });
+    assert.deepEqual(result.coverage.reasons, ["remote_candidate_range_recovered"]);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a test-only answer is supplemented by locally verified implementation evidence", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? restrictedExecFrame({
+            command1: {
+              type: "readfile",
+              file: "/codebase/src/ledger/repair.ts",
+              start_line: 1,
+              end_line: 80,
+            },
+            command2: {
+              type: "readfile",
+              file: "/codebase/test/ledger-repair.test.ts",
+              start_line: 1,
+              end_line: 80,
+            },
+          })
+          : answerFrame(
+            '<file path="/codebase/test/ledger-repair.test.ts"><range>1-11</range></file>',
+          );
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "truncated");
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), [
+      "src/ledger/repair.ts",
+      "test/ledger-repair.test.ts",
+    ]);
+    assert.deepEqual(result.projection, {
+      remote_candidates: 1,
+      accepted_candidates: 2,
+      recovered_candidates: 1,
+      rejected_candidates: 0,
+      unprocessed_candidates: 0,
+      rejection_reasons: [],
+    });
+    assert.deepEqual(result.coverage.reasons, ["implementation_candidate_recovered"]);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a test-only answer recovers one locally imported implementation", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? restrictedExecFrame({
+            command1: {
+              type: "readfile",
+              file: "/codebase/test/ledger-repair.test.ts",
+              start_line: 1,
+              end_line: 80,
+            },
+          })
+          : answerFrame(
+            '<file path="/codebase/test/ledger-repair.test.ts"><range>1-11</range></file>',
+          );
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "truncated");
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), [
+      "src/ledger/repair.ts",
+      "test/ledger-repair.test.ts",
+    ]);
+    assert.equal(result.projection.recovered_candidates, 1);
+    assert.deepEqual(result.coverage.reasons, ["implementation_candidate_recovered"]);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a valid implementation answer does not expose unrelated rg exploration hits", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? restrictedExecFrame({
+            command1: {
+              type: "readfile",
+              file: "/codebase/src/ledger/repair.ts",
+              start_line: 1,
+              end_line: 80,
+            },
+            command2: {
+              type: "rg",
+              pattern: "export",
+              path: "/codebase/src",
+            },
+          })
+          : answerFrame(
+            '<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>',
+          );
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), [
+      "src/ledger/repair.ts",
+    ]);
+    assert.equal(result.projection.recovered_candidates, 0);
+    assert.deepEqual(result.coverage.reasons, []);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("a locally read implementation is retained when the remote answer selects another source file", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  writeFileSync(join(root, "src", "ledger", "helper.ts"), "export const helper = true;\n");
+  let streamCalls = 0;
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        const frame = streamCalls === 1
+          ? restrictedExecFrame({
+            command1: {
+              type: "readfile",
+              file: "/codebase/src/ledger/repair.ts",
+              start_line: 1,
+              end_line: 80,
+            },
+            command2: {
+              type: "readfile",
+              file: "/codebase/src/ledger/helper.ts",
+              start_line: 1,
+              end_line: 20,
+            },
+          })
+          : answerFrame(
+            '<file path="/codebase/src/ledger/helper.ts"><range>1-1</range></file>',
+          );
+        return response(connectResponse([frame]), {
+          headers: { "Connect-Content-Encoding": "gzip" },
+        });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.equal(result.status, "truncated");
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), [
+      "src/ledger/repair.ts",
+      "src/ledger/helper.ts",
+    ]);
+    assert.deepEqual(result.coverage.reasons, ["implementation_candidate_recovered"]);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("partial candidate projection retains only local successes and counts rejections", async () => {
   const { root, temporaryRoot } = ledgerFixture();
   try {
@@ -1318,6 +1923,7 @@ test("partial candidate projection retains only local successes and counts rejec
     assert.deepEqual(result.projection, {
       remote_candidates: 2,
       accepted_candidates: 1,
+      recovered_candidates: 0,
       rejected_candidates: 1,
       unprocessed_candidates: 0,
       rejection_reasons: ["remote_candidate_range_rejected"],
@@ -1348,6 +1954,7 @@ test("the candidate result limit leaves later remote candidates visibly unproces
     assert.deepEqual(result.projection, {
       remote_candidates: 2,
       accepted_candidates: 1,
+      recovered_candidates: 0,
       rejected_candidates: 0,
       unprocessed_candidates: 1,
       rejection_reasons: [],
@@ -1358,23 +1965,91 @@ test("the candidate result limit leaves later remote candidates visibly unproces
   }
 });
 
-test("unstructured answer text is a protocol error rather than an implicit no-result", async () => {
+test("one unstructured answer receives one bounded answer-only shape correction", async () => {
   const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
+  const protocolEvents = [];
+  try {
+    const result = await search({
+      query: "resume interrupted financial records",
+      guard: new PathGuard(root),
+      apiKey: syntheticKey,
+      onProtocolEvent(event) { protocolEvents.push(event); },
+      fetchImpl: async (url) => {
+        if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+          return response(protoString("eyJ.synthetic.jwt"));
+        }
+        streamCalls += 1;
+        return response(connectResponse([
+          streamCalls === 1
+            ? answerFrame("the implementation is in the ledger module")
+            : answerFrame('<file path="/codebase/src/ledger/repair.ts"><range>1-24</range></file>'),
+        ]), { headers: { "Connect-Content-Encoding": "gzip" } });
+      },
+    });
+    assert.equal(streamCalls, 2);
+    assert.deepEqual(result.candidates.map((candidate) => candidate.path), ["src/ledger/repair.ts"]);
+    assert.ok(protocolEvents.some((event) => event.event === "answer_correction"
+      && event.tool_name === "answer"));
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("unstructured answer text is a protocol error after one bounded correction", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
   try {
     await assert.rejects(
       search({
         query: "resume interrupted financial records",
         guard: new PathGuard(root),
         apiKey: syntheticKey,
-        fetchImpl: async (url) => (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit"))
-          ? response(protoString("eyJ.synthetic.jwt"))
-          : response(connectResponse([answerFrame("no result found")]), {
+        fetchImpl: async (url) => {
+          if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+            return response(protoString("eyJ.synthetic.jwt"));
+          }
+          streamCalls += 1;
+          return response(connectResponse([answerFrame("no result found")]), {
             headers: { "Connect-Content-Encoding": "gzip" },
-          }),
+          });
+        },
       }),
       (error) => error?.code === "FC_PROTOCOL_INVALID"
         && error?.protocolReason === "answer_missing_explicit_no_results",
     );
+    assert.equal(streamCalls, 2);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("an empty shape correction cannot erase a prior nonempty malformed answer", async () => {
+  const { root, temporaryRoot } = ledgerFixture();
+  let streamCalls = 0;
+  try {
+    await assert.rejects(
+      search({
+        query: "resume interrupted financial records",
+        guard: new PathGuard(root),
+        apiKey: syntheticKey,
+        fetchImpl: async (url) => {
+          if (url.includes("GetUserJwt") || url.includes("CheckUserMessageRateLimit")) {
+            return response(protoString("eyJ.synthetic.jwt"));
+          }
+          streamCalls += 1;
+          const answer = streamCalls === 1
+            ? "candidate path: test/ledger-repair.test.ts"
+            : "<ANSWER></ANSWER>";
+          return response(connectResponse([answerFrame(answer)]), {
+            headers: { "Connect-Content-Encoding": "gzip" },
+          });
+        },
+      }),
+      (error) => error?.code === "FC_PROTOCOL_INVALID"
+        && error?.protocolReason === "answer_missing_explicit_no_results",
+    );
+    assert.equal(streamCalls, 2);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -1398,6 +2073,7 @@ test("only an explicit no-results answer may be complete with zero candidates", 
     assert.deepEqual(result.projection, {
       remote_candidates: 0,
       accepted_candidates: 0,
+      recovered_candidates: 0,
       rejected_candidates: 0,
       unprocessed_candidates: 0,
       rejection_reasons: [],
@@ -1425,6 +2101,7 @@ test("the established empty ANSWER XML remains an explicit no-results answer", a
     assert.deepEqual(result.projection, {
       remote_candidates: 0,
       accepted_candidates: 0,
+      recovered_candidates: 0,
       rejected_candidates: 0,
       unprocessed_candidates: 0,
       rejection_reasons: [],

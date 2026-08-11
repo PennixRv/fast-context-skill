@@ -58,12 +58,31 @@ When the stream reports a fixed transient capacity or availability rejection,
 the client may retry that unchanged request at most twice within the same
 deadline. This is not an additional model or tool round; malformed protocol,
 authentication, timeout, output-limit, and server failures still stop safely.
+If all three attempts end specifically in Connect `resource_exhausted`, the
+client may refresh the JWT session and repeat its rate-limit preflight at most
+twice before retrying the same current request. Session refreshes, backoff,
+authentication, and every stream attempt consume the original invocation
+deadline; they never create another tool turn or command.
 
 For behavior queries, returned candidates prioritize locally read implementation
 files; related tests are supplemental rather than a standalone substitute when
-the implementation is available. The protocol permits one fixed tool-envelope
-correction during local-tool work and one during the final answer-only request.
-Neither correction accepts prose or relaxes local path/range checks.
+the implementation is available. Each bounded remote request permits at most
+one fixed replacement for a malformed tool envelope; a second malformed
+response for that request fails closed. Replacements do not add a logical tool
+round or execute a command.
+Before using that correction, the client may repair only known unquoted-key and
+trailing-comma JSON defects inside the bounded `[TOOL_CALLS]...[ARGS]`
+envelope, or recover complete top-level `command1` through `command4` objects
+from a truncated `restricted_exec` envelope. A truncated `answer` envelope may
+likewise recover only its first complete top-level JSON string value; the XML
+inside that string still follows the normal strict parser and local projection.
+It never extracts loose paths, commands, candidates, or prose from the rest of
+a response, and no recovery relaxes local command, PathGuard, budget, or range
+checks. An answer with neither candidate markers nor an exact no-result marker
+gets one fixed answer-only shape correction under the shared deadline; a second
+invalid shape remains `FC_PROTOCOL_INVALID`. That correction must produce at
+least one locally projected candidate; an empty correction cannot erase the
+prior nonempty malformed answer into `complete` with zero candidates.
 
 For remote protocol grounding only, a successful guarded `readfile` result also
 contains an internal `read_range` with the exact inclusive bounds of the
@@ -81,11 +100,24 @@ and does not prove semantic correctness or unrestricted whole-repository
 coverage. `truncated` means the returned candidates may be incomplete; it is
 never rendered as a conclusive `(no matches)` result.
 
-The JSON `projection` object reports only fixed counts for candidates reported
-by the remote answer: `remote_candidates`, `accepted_candidates`,
+The JSON `projection` object reports fixed counts only:
+`remote_candidates`, `accepted_candidates`, `recovered_candidates`,
 `rejected_candidates`, `unprocessed_candidates`, and fixed
-`rejection_reasons`. Each exact `<range>` is one candidate unit, so a single
-locally validated file may contribute more than one returned range. `complete`
+`rejection_reasons`. Each exact `<range>` is one remote candidate unit, so a
+single locally validated file may contribute more than one returned range.
+`recovered_candidates` counts at most one primary non-test implementation range
+recovered from this invocation's successfully executed local evidence and then
+reopened through PathGuard. The first successful implementation `readfile` is
+authoritative; an `rg` fallback is considered only when no implementation was
+read or accepted. When the accepted result contains only tests, the client may
+instead inspect bounded relative imports from at most four local test files and
+resolve one guarded implementation, including standard `.js`-to-TypeScript
+source mappings. Package imports, absolute paths, root escapes, missing files,
+and arbitrary response prose are ignored. An `rg` fallback is considered only
+after that local import path and ranks paths by bounded local match count. Such
+a result is always `truncated` with `implementation_candidate_recovered`; it is
+not reported as a native final answer candidate or as proof of semantic
+correctness. `complete`
 with zero candidates is valid only for the
 exact `<no_results/>` marker or the established empty `<ANSWER></ANSWER>`
 form. If any remote candidate fails local path/range projection, the result is

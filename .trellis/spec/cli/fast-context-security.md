@@ -29,6 +29,7 @@ stdout: {
   projection: {
     remote_candidates: integer,
     accepted_candidates: integer,
+    recovered_candidates: integer,
     rejected_candidates: integer,
     unprocessed_candidates: integer,
     rejection_reasons: string[]
@@ -121,17 +122,18 @@ explicit opt-out `--no-external`, or positional arguments.
   metadata are never exposed. Gzip never falls back to raw payload.
 - After a valid Connect payload, tool tags may contain only formatting
   whitespace between `[TOOL_CALLS]`, the fixed word-form tool name, `[ARGS]`,
-  and the JSON object. The JSON object itself must still be complete and
-  parseable; never repair JSON, infer a tool name, or treat remote prose as a
+  and the JSON object. Strict JSON is preferred; only the named bounded repairs
+  below may recover a call. Never infer a tool name or treat remote prose as a
   local command/result.
 - A valid Connect response whose tool tag/JSON is locally invalid receives one
   fixed corrective user message and may make one replacement request using the
-  same `ResourceBudget` remaining time. The executable-tool stage and final
-  answer-only stage each own one correction; neither can consume the other's
-  budget. Connect framing/compression/EndStream failures, remote EndStream
-  errors, output ceilings, transport failures, and a second invalid tool tag in
-  the same stage fail immediately with their existing fixed code. The correction
-  never forwards or records remote prose and cannot add a tool turn.
+  same `ResourceBudget` remaining time. Each logical remote request owns one
+  replacement; separate executable, terminal-answer, and bounded
+  answer-content-correction requests do not consume each other's allowance. Connect
+  framing/compression/EndStream failures, remote EndStream errors, output
+  ceilings, transport failures, and a second invalid tool tag for that request
+  fail immediately with their existing fixed code. The correction never
+  forwards or records remote prose and cannot add a tool turn or command.
 - A stream rejected with fixed transient capacity/availability evidence
   (`connect_end_stream_resource_exhausted`, `connect_end_stream_unavailable`,
   or HTTP `429`) may reissue the identical request at most twice after fixed
@@ -158,6 +160,28 @@ explicit opt-out `--no-external`, or positional arguments.
   behavior candidate. A directly related test is supplemental: when a verified
   implementation is available, a final answer must not return the test alone.
   This ranking instruction never bypasses PathGuard or range validation.
+- Strict tool-envelope JSON is preferred. Before consuming a request's one format
+  correction, the parser may repair only known unquoted-key/trailing-comma
+  defects inside the bounded `[TOOL_CALLS]...[ARGS]` envelope. A truncated
+  `restricted_exec` may salvage only complete top-level `command1` through
+  `command4` objects whose `type` is one of the five local commands. A truncated
+  `answer` may salvage only its complete first top-level JSON string field; its
+  content still passes the strict answer parser and local candidate projection.
+  Never scan prefix/suffix prose for loose paths, fields, commands, candidates,
+  or ranges.
+- A final answer that omits the first non-test implementation successfully read
+  by this invocation may recover only that one path through a fresh bounded
+  PathGuard read and normal final range validation. Only when no implementation
+  was read or accepted may the client inspect at most four accepted test files
+  and twelve relative `./`/`../` imports to resolve one guarded implementation;
+  standard JavaScript specifiers may map to TypeScript source extensions.
+  Package imports, absolute/root-escaping paths, missing files, and prose are
+  ignored. Only then may one `rg` path be considered, ranked by bounded match
+  count. Never expose every exploratory match.
+  Increment `recovered_candidates`, set `truncated`, and add
+  `implementation_candidate_recovered`. Do not count the recovered range in
+  `remote_candidates` or claim that local path/range validation proves semantic
+  correctness.
 - A complete empty result is valid only when the remote `answer` value is exact
   `<no_results/>` or the established empty `<ANSWER></ANSWER>` form. Each remote
   `<file>` marker contributes only a fixed count to `projection`; accepted
@@ -184,8 +208,11 @@ explicit opt-out `--no-external`, or positional arguments.
 | Connect header, flags, length, compression, or EndStream structure is invalid | `FC_PROTOCOL_INVALID` without remote error text |
 | Valid Connect EndStream remote error | Fixed auth/timeout/unavailable/server category by Connect code, without remote error text |
 | Transient stream capacity/unavailable error or HTTP `429` | At most two identical stream retries under the same remaining deadline; then its fixed category |
-| First malformed tool-tag JSON in executable or answer-only stage | Add that stage's one fixed correction message and retry once under the same remaining deadline |
-| Second malformed tool-tag JSON in the same stage | `FC_PROTOCOL_INVALID` without response text |
+| Three stream attempts end in Connect `resource_exhausted` | At most two fresh-JWT session refreshes, each with preflight and the unchanged current request under the original deadline; then `FC_REMOTE_UNAVAILABLE` |
+| First malformed tool-tag JSON for a logical remote request | Add that request's one fixed correction message and replace it once under the same remaining deadline |
+| Known unquoted-key/trailing-comma defect or complete commands in a truncated restricted envelope | Recover only inside the bounded envelope, apply normal command/schema/PathGuard/budget validation, and emit fixed internal recovery metadata |
+| Complete first `answer` string in an otherwise truncated answer envelope | Recover only that JSON string, then apply strict answer syntax and local projection; emit fixed internal recovery metadata |
+| Second malformed tool-tag JSON for the same request | `FC_PROTOCOL_INVALID` without response text |
 | Shared deadline or timeout signal | `FC_REMOTE_TIMEOUT`; active streams/children are cancelled and awaited |
 | Caller abort or transport failure | `FC_REMOTE_UNAVAILABLE`; active streams/children are cancelled and awaited |
 | Enumeration reaches entries/directories/depth/files/matches/glob/tree limit | Typed `truncated` with fixed local reason, visited counts, and continuation when available |
@@ -194,7 +221,8 @@ explicit opt-out `--no-external`, or positional arguments.
 | Candidate file version changes during validation | Drop candidate; public status is `truncated` with `candidate_changed` |
 | Remote answer is exact `<no_results/>` or empty `<ANSWER></ANSWER>` | `complete`/zero candidates and all projection counts zero |
 | Remote answer has a `<file>` marker but all entries fail local projection | `truncated`/zero candidates with `remote_candidate_projection_rejected` and a nonzero rejection count |
-| Remote answer has no candidate marker and is not an exact explicit no-result form | `FC_PROTOCOL_INVALID` without answer text |
+| Final answer omits a locally executed non-test implementation evidence path | Reopen and range-validate it; if valid, return it as `truncated`, increment `recovered_candidates`, and add `implementation_candidate_recovered` |
+| Remote answer has no candidate marker and is not an exact explicit no-result form | Send one fixed answer-only shape correction under the same deadline; accept only a correction with a locally projected candidate, while a second invalid or empty shape is `FC_PROTOCOL_INVALID` without answer text |
 
 ### 5. Good, Base, And Bad Cases
 
@@ -241,8 +269,9 @@ explicit opt-out `--no-external`, or positional arguments.
   across `4 x 3` commands, typed tool result propagation, and local candidate
   projection.
 - Core tests prove one valid-envelope malformed tool payload gets exactly one
-  same-budget retry per stage, including a final answer-only correction after
-  an earlier executable-stage correction; malformed Connect envelopes and
+  same-budget replacement per logical request, including separate corrections
+  in two executable requests, a final answer-only request, and the bounded
+  answer-content correction request; malformed Connect envelopes and
   remote EndStream errors remain terminal failures.
 - Core tests prove a first `resource_exhausted` stream response retries the
   same request without a new tool turn and can succeed; retryable stream
@@ -433,12 +462,13 @@ no-result.
 ### 2. Signatures
 
 ```text
-search({ query, guard, apiKey, maxResults, timeoutMs, fetchImpl, signal })
+search({ query, guard, apiKey, maxResults, timeoutMs, fetchImpl, signal, waitImpl? })
   -> { status, candidates, truncated, projection, coverage }
 
 projection = {
   remote_candidates: integer,
   accepted_candidates: integer,
+  recovered_candidates: integer,
   rejected_candidates: integer,
   unprocessed_candidates: integer,
   rejection_reasons: string[] // fixed local categories only
@@ -462,6 +492,10 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
   request at most twice with fixed short backoff and recalculated remaining
   deadline. This is a transport retry, not another protocol turn: it cannot
   execute a command, repeat a format correction, or reveal a remote response.
+- Persistent Connect `resource_exhausted` after those retries may refresh the
+  JWT session at most twice. Each refresh repeats the fixed preflight and same
+  current request under the original budget. `waitImpl` exists only for
+  deterministic injected tests; production uses the abort-aware bounded wait.
 - After the third effective local execution result, append one fixed user
   force-answer message before building the final request. It requires `answer`,
   prohibits `restricted_exec`, specifies `<file path="/codebase/relative"><range>start-end</range></file>`, permits only exact `<no_results/>` or empty `<ANSWER></ANSWER>` for no result,
@@ -478,10 +512,21 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
   envelope. The parser discards that prefix and never includes it in a later
   request, log, candidate, or public result. After the parsed JSON object only
   whitespace or the `</s>` protocol terminator is valid; other suffix text uses
-  the stage's single format correction and then fails closed.
+  the request's single format correction and then fails closed.
+- Inside that envelope, strict JSON is followed by one deterministic repair for
+  known unquoted-key/trailing-comma defects. If a `restricted_exec` object is
+  truncated, only balanced complete `command1` through `command4` objects with
+  recognized local command types may be recovered. Loose prose/path/range
+  extraction remains forbidden, and recovered commands pass the unchanged
+  executor schema, PathGuard, and shared budget.
 - Instructions rank a locally read implementation ahead of a related test for
   behavior queries. This is a model-facing recall rule only; final candidates
   still require the same local path and range validation.
+- The final projection may add bounded non-test implementation evidence from
+  this search's successful local commands when the answer omits it. The path is
+  reopened through PathGuard, its range is locally generated and validated,
+  `recovered_candidates` increments, and coverage becomes `truncated` with a
+  fixed recovery reason. Never infer a path from prose or trust a model range.
 - Projection counts and `coverage.reasons` use fixed client values only. They
   must never contain remote XML/prose, rejected paths, ranges, response bytes,
   JWTs, keys, request identifiers, or absolute project paths.
@@ -490,19 +535,21 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 
 | Condition | Required result |
 | --- | --- |
-| First malformed tool-tag JSON in executable or answer-only stage | Add that stage's one fixed correction message and retry once under the same remaining deadline |
-| Second malformed tool-tag JSON in the same stage | `FC_PROTOCOL_INVALID` without response text |
+| First malformed tool-tag JSON for a logical remote request | Add that request's one fixed correction message and replace it once under the same remaining deadline |
+| Second malformed tool-tag JSON for the same request | `FC_PROTOCOL_INVALID` without response text |
 | Rate-limit preflight is rejected | `FC_REMOTE_UNAVAILABLE`; zero map and stream requests follow |
 | Direct CLI has no credential | Wait for bounded discovery, then exit 1 with only `FC_KEY_MISSING`; never exit 0 with empty stdout |
 | Valid Connect EndStream `resource_exhausted` | `FC_REMOTE_UNAVAILABLE`, internal fixed `connect_end_stream_resource_exhausted`, and no remote error text |
 | First retryable stream capacity result, then valid `answer` | Return the locally validated answer; observer has one fixed retry event and no additional tool turn |
+| Persistent `resource_exhausted` across all stream retries | Refresh JWT/preflight at most twice under the same deadline; the third exhausted session is `FC_REMOTE_UNAVAILABLE` |
 | Final request returns `restricted_exec` | `FC_PROTOCOL_INVALID`, internal `answer_only_restricted_exec` only |
 | Exact `<no_results/>` or empty `<ANSWER></ANSWER>` | Complete zero-candidate result with zero projection counts |
 | `<file>` candidate lacks range or fails PathGuard/range validation | Omit it, increment `rejected_candidates`, and return `truncated` with fixed projection reason |
 | One `<file>` has two exact, locally valid ranges | Return two locally validated candidate entries and count both ranges |
 | Some candidates validate and some reject | Return only validated candidates and counts; remain `truncated` |
+| Answer omits an implementation present in successful local evidence | Reopen and validate it, count it under `recovered_candidates`, and remain `truncated` |
 | Candidate lies after `maxResults` accepted results | Do not validate it; increment `unprocessed_candidates`, add `candidate_result_limit`, and remain `truncated` |
-| Nonempty answer has no `<file>` marker and is not exact no-result | `FC_PROTOCOL_INVALID` without answer prose |
+| Nonempty answer has no `<file>` marker and is not exact no-result | One answer-only shape correction may return locally projected candidates; an invalid or empty correction remains `FC_PROTOCOL_INVALID` without answer prose |
 
 ### 5. Good, Base, And Bad Cases
 
@@ -530,14 +577,21 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
 - Inject capacity rejection followed by a valid frame; assert at most two
   same-request retries, decreasing shared deadline, no `X-Request-Id`, and no
   command or turn increment before the valid frame.
+- Inject persistent capacity rejection; assert exactly two session refreshes,
+  three JWT/preflight sessions, a single shared deadline, and no extra command
+  or tool turn. Injected `waitImpl` may remove wall-clock delay but not attempts.
 - Assert three local rounds plus the terminal request consume decreasing values
   from one deadline; assert an earlier locally evidenced `answer` ends without
   consuming remaining rounds; assert final `restricted_exec` is failure-closed
   with the fixed internal reason.
 - Assert one malformed tool JSON receives one correction message and then
-  succeeds; assert a terminal answer-only correction remains available after an
-  executable-stage correction; no retry occurs for Connect framing or
+  succeeds; assert separate executable requests, the terminal answer-only
+  request, and an answer-content correction request retain independent single
+  replacements, while a second error for one request fails; no retry occurs for Connect framing or
   terminal-tool failures.
+- Assert known malformed keys/trailing commas recover inside the envelope and a
+  truncated restricted object salvages only balanced complete declared
+  commands. Assert loose prose/path evidence is never executed or returned.
 - Assert a tool-envelope prefix is never replayed and a non-whitespace JSON
   suffix receives only one correction; both checks must avoid remote text in
   public output.
@@ -546,10 +600,15 @@ identifier such as `answer_only_restricted_exec`; it is not a CLI or JSON field.
   and never return zero with empty stdout.
 - Assert at most one answer-only correction for format/range projection rejects;
   it cannot erase a prior remote candidate into a complete empty result.
+- Assert an answer-shape correction cannot erase a prior nonempty malformed
+  answer into a complete empty result.
 - Use a fixed local fixture to cover valid answer projection, multiple ranges
   in one file, missing range, denied path, EOF range, partial valid/invalid
   entries, result limit, explicit no-result, and arbitrary answer prose. Assert
   no snapshot has a key, JWT, remote body, or rejected path.
+- Assert omitted but locally executed implementation evidence is reopened and
+  validated, increments `recovered_candidates`, and sets the fixed truncated
+  reason even when another source candidate was accepted.
 - Compare packed runtime entry files to source files after offline install and
   require the projection reason in the installed `core.mjs`.
 
@@ -610,15 +669,15 @@ throw error;
 Wrong:
 
 ```js
-let toolFormatRetries = 0;
-if (invalidTool && toolFormatRetries++ === 0) retry();
+let stageFormatRetries = 0;
+if (invalidTool && stageFormatRetries++ === 0) retryAcrossTheWholeStage();
 ```
 
 Correct:
 
 ```js
-const retries = finalTurn ? answerOnlyToolFormatRetries : executableToolFormatRetries;
-if (invalidTool && retries < 1) retryWithinThatStage();
+let requestFormatRetries = 0;
+if (invalidTool && requestFormatRetries++ === 0) replaceThatRequestOnce();
 ```
 
 Wrong:

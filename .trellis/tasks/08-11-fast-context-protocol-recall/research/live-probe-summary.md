@@ -185,3 +185,53 @@ stdio JSON-RPC 入口探针。探针显式移除 `WINDSURF_API_KEY`，只继承 
 `connect_end_stream_resource_exhausted`，各自完成 2 次有界流重试后返回 `FC_REMOTE_UNAVAILABLE`，
 没有工具调用或候选。该结果继续证明服务容量窗口是当前阻塞因素之一；它不替代十次保留查询、三种
 措辞和 packed 入口的成功门槛。
+
+## 2026-08-11 上游恢复子集与第二阶段容量恢复
+
+继续对照 npm 发布的上游 `@sammysnake/fast-context-mcp@1.3.2`（npm `gitHead`
+`069971f5002c1da837a76576573507b60765d912`）后，迁移了两类有界互操作逻辑：仅在
+`[TOOL_CALLS]...[ARGS]` 信封内修正未加引号键和尾逗号；仅从截断 `restricted_exec` 回收平衡、
+完整且类型受支持的 `command1` 至 `command4` 对象。未迁移 loose readfile/path 扫描、任意 prose
+候选回收、远端 thinking 回放或原始响应输出。候选层仅允许从本轮成功执行的 `readfile`/`rg` 证据
+补回遗漏的非测试实现，随后重新通过 PathGuard 读取和范围复核；公开投影以
+`recovered_candidates` 计数，并固定报告 `truncated` 与 `implementation_candidate_recovered`。
+
+第一次完整门槛在上述提示词和恢复子集后得到：source 保留查询命中 7/10、三种 source 措辞因两次
+`FC_REMOTE_UNAVAILABLE` 未完成、packed 三种措辞命中 2/3；零 `FC_PROTOCOL_INVALID`、零伪
+`complete`/空候选，无效静态 key 为 `FC_AUTH_REJECTED`。加入一次新 JWT 会话恢复后，第二次完整
+门槛得到 source 保留查询目标命中 8/10（另有一次固定远端失败和一次非目标成功）、source 变体
+2/2、packed 2/3；仍为零协议错误和零伪空成功。两次临时打包 SHA-256 分别为
+`19c2b5f8a72592cedfe87623ecb2cb547c034f2da2e3ceadc7ff3af217a5412e` 与
+`08ebff7c02e0a69c3f831a22668175438e7e9f88655ba142cf9cb5585e45e0b6`。
+
+为覆盖剩余边界，客户端最终允许最多两次新 JWT 会话恢复；每次等待、JWT、预检和同一当前请求均
+消费原始 30 秒总截止时间，不添加工具轮次或命令。确定性测试证明第三个会话仍
+`resource_exhausted` 时固定失败。随后的三措辞冷却前诊断中，每次 JWT 与预检均为 HTTP `200`，
+三个会话共九个 stream 也均为 HTTP `200`，但全部以结构合法的
+`connect_end_stream_resource_exhausted` 终止，故 3/3 正确返回 `FC_REMOTE_UNAVAILABLE`。该批次只
+记录固定状态、计数、本地相对范围和协议类别，不包含凭据、JWT、请求/响应正文或绝对路径。发布门槛
+仍需在服务容量恢复后重跑并全部通过。
+
+## 2026-08-11 多轮格式纠正诊断
+
+加入本地证据择优、测试相对 import 恢复、截断 answer 字符串回收和一次 answer 形状纠正后，一次
+完整正式门槛得到：source 保留查询 `9/10` 命中目标，source 三种措辞 `3/3` 命中，packed 三种
+措辞 `3/3` 命中，零伪 `complete`/空候选，无效静态 key 为 `FC_AUTH_REJECTED` 且 stdout 为空。
+唯一失败为 `FC_PROTOCOL_INVALID`；本批临时 packed tarball SHA-256 为
+`882585ac5d66a9233729b39e28b02b69a536f351fdd30607e6b8c1824c99c851`。因此仍未达到发布门槛。
+
+随后 `--diagnose-retained` 的十次独立调用精确复现一次同类失败。前九次均返回本地验证的
+`src/ledger/repair.ts`；第十次 JWT、预检和四个 stream HTTP 状态均为 `200`，无容量或传输重试，
+固定失败原因为 `tool_call_format_invalid`。脱敏协议事件显示第 2 个 executable 轮先使用一次信封
+纠正并成功执行，第 3 轮再出现独立格式缺陷时直接失败。根因是一次纠正额度错误绑定到整个
+executable 阶段，而不是一个逻辑远端请求。
+
+修复将同一有界函数用于普通工具请求、终态 answer 请求和唯一一次 answer 内容纠正请求：每个逻辑
+请求最多发送一次固定替代请求；替代不增加工具轮或命令，同一请求第二次格式错误仍失败关闭，所有
+请求继续消费同一 30 秒 budget。确定性测试另覆盖两个 executable 请求分别纠正、answer 内容纠正
+请求自身纠正以及同一请求第二次失败；未加入 prose/path 猜测或额外候选来源。
+
+紧接十次诊断的下一批正式探针前四次均命中目标，之后连续五次
+`FC_REMOTE_UNAVAILABLE`。该批已不可能满足 `10/10`，因此主动终止后续变体，避免继续占用远端
+容量。已观察的九次中没有 `FC_PROTOCOL_INVALID` 或伪空成功；但容量失败仍使整批无效，必须在
+独立冷却窗口重新执行完整正式门槛。

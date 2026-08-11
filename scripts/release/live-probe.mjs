@@ -14,7 +14,7 @@ const PROJECT_ROOT = resolve(SCRIPT_DIRECTORY, "../..");
 const FIXTURE_DIRECTORY = join(PROJECT_ROOT, "test", "fixtures", "ledger-recall");
 const SOURCE_CLI = join(PROJECT_ROOT, "scripts", "fast-context-search.mjs");
 const MAX_CAPTURED_BYTES = 128 * 1024;
-const PROBE_INTER_RUN_DELAY_MS = 3_000;
+const PROBE_INTER_RUN_DELAY_MS = 10_000;
 const RETAINED_QUERY = "Where does the application resume financial records left in a partially committed state after an interrupted batch?";
 const QUERY_VARIANTS = [
   RETAINED_QUERY,
@@ -142,8 +142,12 @@ function summarizeProtocolEvents(events) {
     .filter((event) => event?.event === "rate_limit_preflight" && typeof event.status === "string")
     .map((event) => event.status);
   const streamRetries = events.filter((event) => event?.event === "stream_retry").length;
+  const sessionRefreshes = events.filter((event) => event?.event === "session_refresh"
+    && event?.status === "complete").length;
   const toolCalls = events
-    .filter((event) => typeof event?.tool_name === "string" && Number.isSafeInteger(event?.turn))
+    .filter((event) => (event?.event === undefined || event?.event === "answer_correction")
+      && typeof event?.tool_name === "string"
+      && Number.isSafeInteger(event?.turn))
     .map((event) => ({
       turn: event.turn,
       final_turn: event.final_turn === true,
@@ -161,6 +165,7 @@ function summarizeProtocolEvents(events) {
   return {
     preflight,
     stream_retries: streamRetries,
+    session_refreshes: sessionRefreshes,
     tool_calls: toolCalls,
     local_tools: localTools,
   };
@@ -246,6 +251,7 @@ async function diagnose(projectRoot, queries = QUERY_VARIANTS) {
   if (!credential) throw new Error("credential discovery failed");
   const summaries = [];
   for (const [index, query] of queries.entries()) {
+    if (index > 0) await waitForProbeInterval();
     const protocol_events = [];
     const transport_events = [];
     try {
@@ -279,6 +285,7 @@ async function diagnose(projectRoot, queries = QUERY_VARIANTS) {
         transport: transport_events,
       });
     }
+    writeEvent("diagnostic_run", summaries.at(-1));
   }
   process.stdout.write(`${JSON.stringify({ event: "diagnostic_summary", summaries })}\n`);
   if (!summaries.every((summary) => summary.failure === null)) process.exitCode = 1;

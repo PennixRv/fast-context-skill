@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.5",
+  "package": "@pennixrv/fast-context-skill@0.1.6",
   "source_repository": "https://github.com/PennixRv/fast-context-skill",
   "upstream": {
     "repository": "https://github.com/oulkurt/fast-context-skill",
@@ -28,16 +28,16 @@
   "runtime_file_sha256": {
     "LICENSE": "bb9a2ce78d8b8ca19db1bb4ddc68b02aa1959487d28fc472d8414ede53cc3df1",
     "NOTICE.md": "cc25264b880d726f158bfa046bfdbe6871adb2ad86ebad3ecacad1f68410d61f",
-    "README.md": "e318453f56fa2fb71beda8e5aa2e2f80c4bb90540b72f25367e465124c43f28c",
+    "README.md": "151e3c4179aa421b7497d6150f4b8f759d5f722123766cd258cf4f1e70144764",
     "SKILL.md": "68a11c87105cab5943df0032998e5f7b2a0e04fff17fb48cdcee980033aa9cf8",
     "agents/openai.yaml": "655cc490ab7d9fc277c2bd85cd187e937523266c95eee0310e7d1ec80c24c400",
-    "references/script-contract.md": "e2c875b626ef474e70729b20f711120f51b6f87809b14ed05189f00da4c05322",
+    "references/script-contract.md": "b963982ccf00a890965ac1c6531ce4544adcc5ab4235555f9ee2b8fc78f4e586",
     "scripts/fast-context-search.mjs": "2d14358192d7f905220bfcd4be530f843e35d5ee67196c01e6096bc1fcdc4ef1",
     "scripts/lib/LICENSE.fast-context-mcp": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
-    "scripts/lib/core.mjs": "be17bfc8afda91bada166db50bcb289bbf064bb553f1d0e9e330b4ff01b004b0",
+    "scripts/lib/core.mjs": "88dd1f48409a10792e03e421d96b796d1744dbba07977b643d57c4ce13f107d2",
     "scripts/lib/credentials.mjs": "d21cec35688727272340ddc30875bc982f4914843e76d947951e4256fd1a931d",
     "scripts/lib/devin-credential-helper.mjs": "803ef84423c90b78f6c6a7ad410a2a8f2d5fd417ec2fac1d3654b770d99d3301",
-    "scripts/lib/executor.mjs": "dd35c61bb27317bbd87ed550afe6868caa695a5d74e0a31a3542b8ce3ab92e16",
+    "scripts/lib/executor.mjs": "87ff4c758764c601a53e0398cc0ff79af46edad7a27bea96f474e1d032a2f5cb",
     "scripts/lib/path-guard.mjs": "cf8b5631ede6e6368fe80ae28fb6c42dc6353642ddf1a92b326dabc515cf3393",
     "scripts/lib/protobuf.mjs": "be21011475d2623b993a6baced0d829ca0c36f0d871fe2c3fb5b439079c8b88a",
     "scripts/lib/public-error.mjs": "417900eb1ad877cc39f045e63115bc6166924c5dabf55d250e93d742d162168d"

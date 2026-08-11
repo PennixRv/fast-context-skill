@@ -47,15 +47,24 @@ the shared remaining deadline; retrying does not add a local-tool turn, command,
 format correction, request ID, or candidate source. Malformed Connect data,
 authentication, timeout, `5xx`, output ceilings, parser failures, and final
 protocol violations do not use this retry path.
+When all attempts end specifically in a valid Connect `resource_exhausted`, the
+client may perform at most two session refreshes. Each refresh waits within the
+same deadline, obtains a new JWT in memory, repeats the fixed rate-limit
+preflight, and retries the unchanged current request. It never resets the
+deadline or model/tool counters; exhaustion after the second refresh remains
+`FC_REMOTE_UNAVAILABLE`.
 
-One malformed tool envelope may receive one fixed correction in the
-executable-tool stage, and one independently bounded correction in the final
-answer-only stage. This separation prevents an early formatting repair from
-removing the terminal protocol's only recovery attempt. A second malformed
-envelope in either stage remains `FC_PROTOCOL_INVALID`. Prompts treat a locally
-read implementation as primary for a behavior query; a related test cannot
-become the only result when that implementation is available, but all returned
-paths and ranges still require local validation.
+Within the bounded tool envelope, the parser first accepts strict JSON, then may
+repair only known unquoted-key and trailing-comma defects. A truncated
+`restricted_exec` envelope may contribute only complete top-level
+`command1` through `command4` objects with recognized command types. The parser
+does not scan response prose for loose paths, commands, candidates, or ranges.
+If this bounded recovery cannot produce a valid call, each logical remote
+request has one fixed replacement under the same deadline. A second malformed
+envelope for that request remains `FC_PROTOCOL_INVALID`; a replacement does not
+add a tool turn or execute a command. This same helper covers ordinary tool
+rounds, the terminal answer request, and the one bounded answer-content
+correction request.
 
 For protocol grounding, a guarded successful `readfile` result includes only an
 internal `read_range` object with the exact inclusive bounds of the numbered
@@ -67,7 +76,7 @@ same-version `validateCandidateRange()` check.
 Successful stdout is one JSON object:
 
 ```json
-{"status":"truncated","search_terms":["import"],"candidates":[{"path":"src/import.mjs","start_line":12,"end_line":20,"reason":"local_range_validated"}],"truncated":true,"projection":{"remote_candidates":2,"accepted_candidates":1,"rejected_candidates":1,"unprocessed_candidates":0,"rejection_reasons":["remote_candidate_range_rejected"]},"coverage":{"visited":{"entries":4096,"directories":128,"files":2048,"matches":37,"outputBytes":18320},"continuation":{"pending_directories":3,"next_path":"/codebase/src/remaining"},"reasons":["file_limit","remote_candidate_projection_rejected"]}}
+{"status":"truncated","search_terms":["import"],"candidates":[{"path":"src/import.mjs","start_line":12,"end_line":20,"reason":"local_range_validated"}],"truncated":true,"projection":{"remote_candidates":2,"accepted_candidates":1,"recovered_candidates":0,"rejected_candidates":1,"unprocessed_candidates":0,"rejection_reasons":["remote_candidate_range_rejected"]},"coverage":{"visited":{"entries":4096,"directories":128,"files":2048,"matches":37,"outputBytes":18320},"continuation":{"pending_directories":3,"next_path":"/codebase/src/remaining"},"reasons":["file_limit","remote_candidate_projection_rejected"]}}
 ```
 
 `status: "complete"` means every PathGuard-approved path in the bounded local
@@ -83,16 +92,36 @@ identifies the last bounded frontier when one is available.
 `projection` contains counts only. `remote_candidates` is the number of remote
 candidate ranges (a `<file>` may contain more than one `<range>`),
 `accepted_candidates` is the number that passed local PathGuard/range
-validation, `rejected_candidates` is the number locally rejected for format,
-path, range, duplicate, or version reasons, and
+validation, `recovered_candidates` is zero or one for the primary non-test
+implementation range recovered from this invocation's successfully executed
+local evidence and then locally revalidated. The first implementation
+`readfile` wins; only when no implementation was read or accepted may the
+client inspect at most four accepted local tests and twelve `./`/`../` import
+specifiers to resolve one guarded implementation. Standard `.js`, `.jsx`,
+`.mjs`, and `.cjs` specifiers may map to their TypeScript source extension;
+package imports, absolute paths, root escapes, missing paths, and response prose
+are never candidates. Only after that may the strongest bounded `rg` path be
+considered.
+`rejected_candidates` is the number locally rejected for format, path, range,
+duplicate, or version reasons, and
 `unprocessed_candidates` is the number left beyond `--max-results`. No field
 contains rejected paths, ranges, XML, or remote prose. `rejection_reasons` is
 the deduplicated fixed local category list for rejected entries. `complete`
 with zero candidates is permitted only for exact `<no_results/>` or the
 established empty `<ANSWER></ANSWER>` form.
+Any recovered implementation candidate sets `status: "truncated"` and the
+fixed `implementation_candidate_recovered` reason. Recovery never turns an
+`rg` hit into a guessed range: the client performs a bounded guarded read and
+the same final range validation first.
 Any candidate rejection sets `status: "truncated"` and the fixed
 `remote_candidate_projection_rejected` reason; arbitrary answer prose with no
-candidate marker is `FC_PROTOCOL_INVALID`, not semantic no-result.
+candidate marker receives one fixed answer-only shape correction under the
+same deadline. A second invalid shape is `FC_PROTOCOL_INVALID`, not semantic
+no-result, and an empty correction cannot erase the prior nonempty malformed
+answer into complete zero-candidate success. The envelope parser may recover a complete first top-level `answer`
+JSON string when only the enclosing object is truncated; it never extracts a
+candidate from prose, and the recovered string still undergoes strict XML,
+PathGuard, and range validation.
 
 Every repository-map and restricted local tool result sent to the remote model
 uses the same `complete`, `truncated`, or `failure` status words. Tool failures
@@ -128,9 +157,9 @@ tool turns does the final request receive a fixed force-answer user message and
 advertise only the `answer` tool. The message forbids `restricted_exec`,
 requires strict `<file>`/`<range>` entries or an exact explicit no-result form,
 limits the result count, and forbids guessed paths/ranges. A malformed tool-tag
-JSON receives one fixed corrective user message and one retry under the same
-remaining deadline; it neither forwards remote text nor creates a new tool
-round. A projection rejection may similarly receive one answer-only correction
+JSON receives at most one fixed corrective user message per logical request and
+one retry under the same remaining deadline; it neither forwards remote text
+nor creates a new tool round. A projection rejection may similarly receive one answer-only correction
 when the rejection is format/range related. The client rejects a terminal
 non-answer response as `FC_PROTOCOL_INVALID`; its internal fixed protocol
 reason is never emitted by the CLI. A tool envelope may have a bounded remote

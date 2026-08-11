@@ -6,7 +6,7 @@
 - 为现有 Connect/Protobuf 注入夹具补充请求解码辅助，记录终态消息和工具定义但不记录远端原文；覆盖充分本地证据后的提前答复，不把最多三轮误实现为必须三轮。
 - 在 JWT 后、仓库地图前补充受控 `CheckUserMessageRateLimit` 预检，验证固定模型、gzip 请求、共享 deadline 和拒绝后零地图/零流请求；不得引入额外凭据来源、重试或远端正文。
 - 仅为固定容量/可用性分类补充最多两次同请求短退避，验证重试成功不增加工具轮次或命令、失败不越过共享 deadline；删除 fork 特有 `X-Request-Id`，不得加入追踪头或上游的 TLS 降级。
-- 分离可执行工具阶段和 answer-only 阶段的一次格式纠正预算，验证前者成功后终态仍可修正；提示词要求有已读实现时不把测试单独作为答案，且不放宽 JSON、PathGuard 或范围复核。
+- 每个逻辑远端请求保留一次格式纠正预算，验证不同可执行轮和 answer 内容纠正请求可分别修正，而同一请求第二次错误失败关闭；提示词要求有已读实现时不把测试单独作为答案，且不放宽 JSON、PathGuard 或范围复核。
 - 让成功的受控 `readfile` 工具结果携带由实际输出行计算的内部 `read_range`；终态和格式修正提示词只能复用该范围，候选投影仍执行同一文件版本的二次复核，且该字段不进入公开 CLI JSON。
 - 先编写会失败的测试：终态仍有 `restricted_exec`、答案含文件无范围后返回 `complete`/零候选、PathGuard 或范围拒绝后返回 `complete`/零候选。
 
@@ -17,6 +17,9 @@
 - 为终态违规和严格 Connect 边界使用固定内部协议原因，保留公开 `FC_PROTOCOL_INVALID`；工具 JSON 只允许一次带固定纠正消息的共享预算重试。
 - 统一 JWT、预检和流请求的完整固定 Connect `User-Agent`；恢复逐步推理提示与同文件多精确范围的 XML 文法，但丢弃信封前文字、拒绝 JSON 尾随文字、绝不回放远端 thinking。
 - 让直接执行的 source CLI、安装后 CLI 和 release 诊断都顶层等待其有界异步工作；本地保活计时器必须在 `finally` 清理，避免 Node 在 fetch 落定前以零退出码和空 stdout 结束。
+- 迁移上游信封内 JSON 修正和完整命令回收的安全子集；禁止 loose path/prose 回收，并为恢复事件使用固定无敏感元数据。
+- 对外层截断但顶层 `answer` 字符串完整的响应仅回收该字符串；对无候选且非显式无结果的 answer 仅做一次 answer-only 形状修正，第二次继续返回固定协议错误。
+- 对持续 `resource_exhausted` 增加最多两次新 JWT 会话恢复；每次重新预检并重发同一请求，继续受一个共享截止时间约束。
 
 ## 3. 收敛候选投影
 
@@ -24,6 +27,7 @@
 - 增加仅含固定计数与拒绝类别的 `projection` 元数据；将任意拒绝映射为 `truncated` 和 `remote_candidate_projection_rejected`。
 - 仅精确 `<no_results/>` 或既有空 `<ANSWER></ANSWER>` 能表达完整无结果；模糊 prose 或不含候选格式的 answer 失败为 `FC_PROTOCOL_INVALID`。
 - 保持候选路径、范围和原因均由本地验证生成，绝不回传远端 prose。
+- 最终 answer 遗漏本轮已执行的非测试实现证据时，允许从成功的 `readfile`/`rg` 本地结果补回，经 PathGuard 重新读取和范围复核后返回；新增 `recovered_candidates`，并固定报告 `truncated` 与 `implementation_candidate_recovered`。
 
 ## 4. 契约、文档与打包
 
@@ -39,6 +43,6 @@
 
 ## 当前验收结论
 
-- 离线协议、CLI 生命周期和 tarball 安装入口测试均可重复通过；无效静态 key 保持 `FC_AUTH_REJECTED`。
-- 真实三措辞诊断曾完成 3/3，本地验证目标实现范围，且无终态工具违规或投影伪空结果。
-- 完整十次验收在修复 CLI 空 stdout 后仍受远端 `FC_REMOTE_UNAVAILABLE` 容量窗口阻断；该门槛未通过，因此候选只提交、不发布。详见 `research/live-probe-summary.md`。
+- 离线协议、CLI 生命周期、provenance、包内容和 tarball 安装入口测试均可重复通过；无效静态 key 保持 `FC_AUTH_REJECTED`。
+- 最近一轮完整结果为 source 保留 `9/10`、三措辞 `3/3`、packed `3/3`；唯一协议失败已通过脱敏诊断定位为跨 executable 轮共享格式纠正计数器，并改为每个逻辑远端请求一次替代。
+- 修复后批次前四次均命中目标且无协议错误，随后进入持续 `FC_REMOTE_UNAVAILABLE` 容量窗口；独立单次复核仍为该固定可用性错误。真实 `10/10` 门槛尚未通过，因此当前先提交固定源码候选，不打 tag、不发布。详见 `research/live-probe-summary.md` 和 `research/retry-scope-root-cause.md`。

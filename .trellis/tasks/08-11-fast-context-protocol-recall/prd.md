@@ -32,12 +32,14 @@
 
 ## 验收标准
 
-- [ ] 注入 `fetchImpl` 的确定性测试复现并修复终态 `restricted_exec` 与候选缺范围导致的伪 `complete`/零候选。
-- [ ] 终态请求包含 force-answer 用户消息，定义中无 `restricted_exec`；终态继续返回该工具时得到 `FC_PROTOCOL_INVALID` 和稳定非敏感原因。
-- [ ] 首次工具调用 JSON 非法时仅进行一次、共享截止时间内的格式重试，第二次合法可成功。
-- [ ] 合法路径与合法范围返回本地有效候选；显式合法无结果才允许 `complete`/零候选。
-- [ ] 缺范围、PathGuard 拒绝、范围越界的全部候选分别产生稳定 `truncated` 原因，不得伪报完整无结果；部分有效时仅保留有效候选并报告拒绝计数。
-- [ ] 最大轮次、命令数、结果数和共享截止时间的既有测试继续通过；测试快照、stderr 与 JSON 不含凭据、JWT 或完整远端响应。
+- [x] 注入 `fetchImpl` 的确定性测试复现并修复终态 `restricted_exec` 与候选缺范围导致的伪 `complete`/零候选。
+- [x] 终态请求包含 force-answer 用户消息，定义中无 `restricted_exec`；终态继续返回该工具时得到 `FC_PROTOCOL_INVALID` 和稳定非敏感原因。
+- [x] 首次工具调用 JSON 非法时仅进行一次、共享截止时间内的格式重试，第二次合法可成功。
+- [x] 已知未加引号键、尾逗号及截断 restricted envelope 中的完整命令可在信封内有界恢复；不得从 prose 或松散路径猜测命令。
+- [x] 合法路径与合法范围返回本地有效候选；显式合法无结果才允许 `complete`/零候选。
+- [x] 缺范围、PathGuard 拒绝、范围越界的全部候选分别产生稳定 `truncated` 原因，不得伪报完整无结果；部分有效时仅保留有效候选并报告拒绝计数。
+- [x] 最大轮次、命令数、结果数和共享截止时间的既有测试继续通过；测试快照、stderr 与 JSON 不含凭据、JWT 或完整远端响应。
+- [x] 持续 `resource_exhausted` 最多执行两次新会话恢复，仍受原始截止时间约束；最终 answer 遗漏已执行的实现证据时，以 `recovered_candidates` 和固定不完整原因透明补回本地复核候选。
 - [ ] 使用 WSL Devin 登录态和四文件保留夹具完成至少十次同一查询及三种等价措辞的受控探针：每次有本地验证的 `src/ledger/repair.ts` 范围，零 `FC_PROTOCOL_INVALID`，零“远端候选后 complete/0”伪成功，终态无 `restricted_exec`。
 - [ ] 无显式 `WINDSURF_API_KEY` 时使用 Devin 登录态；无效显式 key 稳定为 `FC_AUTH_REJECTED`；npm tarball 安装入口与源码入口行为一致。
 - [ ] 通过仓库 lint/类型/单元/集成/打包验证、`trellis-check` 与任务校验；提交后工作区干净。仅在上述门槛全部通过后才依既有发布流程发布并校验公开 tarball。

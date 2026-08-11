@@ -60,6 +60,8 @@ test("staged tarball installs offline and the runtime CLI does not need maintain
     const installedCore = readFileSync(join(packageRoot, "scripts", "lib", "core.mjs"), "utf8");
     assert.equal(installedCore, readFileSync("scripts/lib/core.mjs", "utf8"));
     assert.match(installedCore, /remote_candidate_projection_rejected/);
+    assert.match(installedCore, /recovered_candidates/);
+    assert.match(installedCore, /MAX_SESSION_REFRESHES = 2/);
     assert.match(installedCore, /rejection_reasons/);
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });

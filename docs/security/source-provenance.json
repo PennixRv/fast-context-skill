@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package": "@pennixrv/fast-context-skill@0.1.5",
+  "package": "@pennixrv/fast-context-skill@0.1.6",
   "baseline": {
     "repository": "https://github.com/PennixRv/fast-context-skill",
     "commit": "d5ebd5522295d21c1a4d6fcf05580e069104c5d6"
@@ -43,8 +43,8 @@
       "path": "README.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Local-first operating, bounded rate preflight and capacity retry, staged answer correction, locally grounded multi-range answers, implementation-priority projection, and fixed remote failure documentation.",
-      "shipped_sha256": "e318453f56fa2fb71beda8e5aa2e2f80c4bb90540b72f25367e465124c43f28c"
+      "change_summary": "Local-first operation with bounded session recovery, envelope and answer-shape repair, locally grounded implementation evidence recovery, and fixed remote failure documentation.",
+      "shipped_sha256": "151e3c4179aa421b7497d6150f4b8f759d5f722123766cd258cf4f1e70144764"
     },
     {
       "path": "SKILL.md",
@@ -65,21 +65,21 @@
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Patch release identity and exact individual-file runtime allowlist.",
-      "shipped_sha256": "a392041d39fd204133efacd7cfdcc8782737c3bb4c7c105eac6d67c5d15e1965"
+      "shipped_sha256": "2d0ed3003058035c0c5b9b0bf003653bca9f11190e1a2fcf6e9518f480b1b0bd"
     },
     {
       "path": "references/script-contract.md",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Finite CLI, bounded upstream rate preflight, capacity retry, staged format correction and early answer, locally grounded multi-range answers, credential-source, and redacted remote-error contract.",
-      "shipped_sha256": "e2c875b626ef474e70729b20f711120f51b6f87809b14ed05189f00da4c05322"
+      "change_summary": "Finite CLI with bounded upstream session recovery, strict envelope and answer-shape correction, local evidence projection, credential-source, and redacted remote-error contract.",
+      "shipped_sha256": "b963982ccf00a890965ac1c6531ce4544adcc5ab4235555f9ee2b8fc78f4e586"
     },
     {
       "path": "references/source-provenance.json",
       "classification": "fork_owned",
       "owner": "pennixrv",
       "change_summary": "Public, privacy-safe provenance projection included in the npm package.",
-      "shipped_sha256": "f6b12c007973c918f79afe023c62b64ff9671d3983238c99a0ff1dd1350e7a25"
+      "shipped_sha256": "9df4b942469acd551d8ac7f9daf2320ce1cc9831ae4e8d7e374541b60732f113"
     },
     {
       "path": "scripts/fast-context-search.mjs",
@@ -103,8 +103,8 @@
       "path": "scripts/lib/core.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Bounded protocol client with fixed Connect request fields, staged format recovery, locally grounded multi-range answers, implementation-first recall, strict candidate projection, and fixed internal diagnostics.",
-      "shipped_sha256": "be17bfc8afda91bada166db50bcb289bbf064bb553f1d0e9e330b4ff01b004b0"
+      "change_summary": "Bounded protocol client with safe command/answer envelope repair, one per-request format replacement, non-erasing answer-shape correction, fixed session recovery, single implementation/import evidence projection, strict local ranges, and fixed internal diagnostics.",
+      "shipped_sha256": "88dd1f48409a10792e03e421d96b796d1744dbba07977b643d57c4ce13f107d2"
     },
     {
       "path": "scripts/lib/credentials.mjs",
@@ -124,8 +124,8 @@
       "path": "scripts/lib/executor.mjs",
       "classification": "fork_owned",
       "owner": "pennixrv",
-      "change_summary": "Guarded local primitives, fixed ripgrep invocation, and redacted local-tool protocol observation.",
-      "shipped_sha256": "dd35c61bb27317bbd87ed550afe6868caa695a5d74e0a31a3542b8ce3ab92e16"
+      "change_summary": "Guarded local primitives, fixed ripgrep invocation, bounded local evidence ranking, and relative test-import recovery for same-search candidate revalidation.",
+      "shipped_sha256": "87ff4c758764c601a53e0398cc0ff79af46edad7a27bea96f474e1d032a2f5cb"
     },
     {
       "path": "scripts/lib/path-guard.mjs",
