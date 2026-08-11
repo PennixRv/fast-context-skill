@@ -180,3 +180,8 @@ stdio JSON-RPC 入口探针。探针显式移除 `WINDSURF_API_KEY`，只继承 
 为 `3c9a85bf0ffb91709b9d6f67c9ca8799ac51a5bb5aae66c6fbe211961ed881a8`。该摘要只保留固定状态、
 本地验证候选和产物摘要，不保存远端正文、凭据、JWT、请求标识或绝对路径。完整门槛仍未满足，任务
 不得归档、打 tag 或发布。
+
+紧接着的短诊断未重现协议违规：三种措辞均在 JWT 与预检 HTTP `200` 后、首条流阶段收到
+`connect_end_stream_resource_exhausted`，各自完成 2 次有界流重试后返回 `FC_REMOTE_UNAVAILABLE`，
+没有工具调用或候选。该结果继续证明服务容量窗口是当前阻塞因素之一；它不替代十次保留查询、三种
+措辞和 packed 入口的成功门槛。
